@@ -30,9 +30,14 @@ def stock(casting, name, clauses):
     ("hades", "hades"), ("Hades lead", "hades"), ("governor-cockpit", "governor"),
     ("claude-dev-harness", "harness lead"), ("Studio lead", "studio"),
     ("nashville-suno-studio", "studio"), ("2D-to-3D-SBS-Converter", "converter"),
+    ("claude-dev-harness-speak-menu", "harness lead"), ("speak-app-voice-docs", "speak-app"),
 ])
 def test_session_names_resolve_to_cast(casting, prefix, cast):
     assert phrase_join.resolve_cast(prefix, casting)["name"] == cast
+
+
+def test_unknown_lane_name_stays_unresolved(casting):
+    assert phrase_join.resolve_cast("totally-unknown-lane", casting) is None
 
 
 def test_known_clause_joins_two_stored_clips(casting):

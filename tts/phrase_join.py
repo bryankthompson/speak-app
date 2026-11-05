@@ -43,6 +43,9 @@ def resolve_cast(prefix: str, casting: dict) -> Optional[dict]:
     """Cockpit name -> profile dict plus 'name' (what its name clip says) and 'profile' (its id)."""
     key = _norm(prefix)
     candidates = [key] + [key[: -len(x)] for x in ("-cockpit", " lead") if key.endswith(x)]
+    # A lane speaks as its cockpit: "claude-dev-harness-speak-menu" -> longest hyphen prefix that is an assignment.
+    parts = key.split("-")
+    candidates += ["-".join(parts[:i]) for i in range(len(parts) - 1, 0, -1)]
     assignments = {_norm(k): v for k, v in casting["assignments"].items()}
     for cand in candidates:
         a = assignments.get(cand)
