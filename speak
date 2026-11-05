@@ -208,6 +208,17 @@ while [[ $# -gt 0 ]]; do
             PROVIDER="$2"
             shift 2
             ;;
+        --profiles)
+            exec python3 "${TTS_DIR}/profiles.py" list
+            ;;
+        --assign)
+            [[ $# -ge 3 ]] || { echo "Usage: speak --assign COCKPIT PROFILE" >&2; exit 1; }
+            exec python3 "${TTS_DIR}/profiles.py" assign "$2" "$3"
+            ;;
+        --profile)
+            [[ $# -ge 2 ]] || { echo "Usage: speak --profile ID [text]" >&2; exit 1; }
+            exec python3 "${TTS_DIR}/profiles.py" audition "${@:2}"
+            ;;
         -l|--list)
             ACTION="list"
             shift

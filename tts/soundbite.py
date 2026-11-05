@@ -17,6 +17,8 @@ CLI:
 """
 
 import argparse
+import contextlib
+import fcntl
 import hashlib
 import json
 import os
@@ -63,6 +65,38 @@ def _write(manifest: dict) -> None:
     os.replace(tmp, path)
 
 
+@contextlib.contextmanager
+def _locked():
+    """Serialize manifest read-modify-write across processes (parallel recorders lost entries without it)."""
+    repo_dir().mkdir(parents=True, exist_ok=True)
+    with open(repo_dir() / ".manifest.lock", "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        yield
+
+
+def rel_path(text: str, provider: str, voice: str, model: str = "", speed: float = 1.0):
+    key = make_key(text, provider, voice, model, speed)
+    slug = re.sub(r"[^a-z0-9]+", "-", normalize(text))[:40].strip("-") or "bite"
+    return key, f"{provider}/{voice}/{slug}-{key[:8]}.mp3"
+
+
+def adopt(text: str, provider: str, voice: str, model: str = "", speed: float = 1.0) -> bool:
+    """Index an mp3 that is already on disk but missing from the manifest. True if an entry was added."""
+    key, rel = rel_path(text, provider, voice, model, speed)
+    path = repo_dir() / rel
+    with _locked():
+        manifest = _load()
+        if key in manifest or not path.exists() or path.stat().st_size < 1024:
+            return False
+        manifest[key] = {
+            "text": text.strip(), "provider": provider, "voice": voice, "model": model, "speed": speed,
+            "file": rel, "bytes": path.stat().st_size,
+            "created": datetime.fromtimestamp(path.stat().st_mtime).isoformat(timespec="seconds"),
+        }
+        _write(manifest)
+        return True
+
+
 def lookup(text: str, provider: str, voice: str, model: str = "", speed: float = 1.0) -> Optional[Path]:
     """Return the stored mp3 path, or None on a miss. Never raises: a broken repo is a miss."""
     try:
@@ -79,24 +113,23 @@ def lookup(text: str, provider: str, voice: str, model: str = "", speed: float =
 def save(text: str, provider: str, voice: str, audio: bytes, model: str = "", speed: float = 1.0) -> Optional[Path]:
     """Store audio and index it. Failure is logged and returns None; speaking must not break."""
     try:
-        key = make_key(text, provider, voice, model, speed)
-        slug = re.sub(r"[^a-z0-9]+", "-", normalize(text))[:40].strip("-") or "bite"
-        rel = f"{provider}/{voice}/{slug}-{key[:8]}.mp3"
+        key, rel = rel_path(text, provider, voice, model, speed)
         path = repo_dir() / rel
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(audio)
-        manifest = _load()
-        manifest[key] = {
-            "text": text.strip(),
-            "provider": provider,
-            "voice": voice,
-            "model": model,
-            "speed": speed,
-            "file": rel,
-            "bytes": len(audio),
-            "created": datetime.now().isoformat(timespec="seconds"),
-        }
-        _write(manifest)
+        with _locked():
+            manifest = _load()
+            manifest[key] = {
+                "text": text.strip(),
+                "provider": provider,
+                "voice": voice,
+                "model": model,
+                "speed": speed,
+                "file": rel,
+                "bytes": len(audio),
+                "created": datetime.now().isoformat(timespec="seconds"),
+            }
+            _write(manifest)
         print(f"soundbite saved: {rel}", file=sys.stderr)
         return path
     except Exception as e:
