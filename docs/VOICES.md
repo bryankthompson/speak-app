@@ -69,6 +69,7 @@ follow their main checkout; a folder outside git uses its nearest listed parent,
 - `speak --here` shows this repo's entry; `speak --here on` lists it (add the word `--plain` after `on` for the plain voice); `speak --here off` removes it.
 - `speak --repos` lists the repos seen in the last 7 days with counts, whether each is listed, and the gate state.
 - `speak --gate on` / `speak --gate off` switches the gate.
+- For scripts: `speak --here` accepts the words `--json` (one JSON object: repo, listed, voices, gate, speaks) and `--check` (no output; exit 0 if the repo would speak, 1 if not). `speak --brief` prints the short guide a cockpit prompt can embed (plugins/speak-voices/BRIEF.md); it exits 1 with a message if the file is missing.
 - `speak --alert "text"` marks a warning: it always speaks, in the repo's own voice setting (plain if unlisted).
   Warnings are errors and failures, safety blocks, budget and spend, credits, and disk or keys low or expired.
   `speak --test` is an alert.

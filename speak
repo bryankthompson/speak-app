@@ -45,7 +45,8 @@ OPTIONS:
     --list-voices            List available voices for ElevenLabs
     --test-voice VOICE       Test a specific voice
     --alert                  Mark the line a warning: always speaks, whatever the per-repo gate says
-    --here [on [--plain]|off] Show or set whether this repo speaks (central registry)
+    --here [on [--plain]|off] [--json|--check]  Show or set whether this repo speaks (central registry); --json one object, --check exit code only
+    --brief                  Print the short speak guide a cockpit prompt can embed
     --repos                  Repos that spoke or were skipped in the last 7 days
     --gate on|off            Switch the per-repo gate (off: everything speaks)
     --profiles               List voice profiles, their cockpits and clip coverage
@@ -230,6 +231,10 @@ while [[ $# -gt 0 ]]; do
         --alert)
             ALERT=true
             shift
+            ;;
+        --brief)
+            [[ -r "${SCRIPT_DIR}/plugins/speak-voices/BRIEF.md" ]] || { echo "speak --brief: ${SCRIPT_DIR}/plugins/speak-voices/BRIEF.md not found" >&2; exit 1; }
+            exec cat "${SCRIPT_DIR}/plugins/speak-voices/BRIEF.md"
             ;;
         --here)
             exec python3 "${TTS_DIR}/repo_gate.py" here "${@:2}"

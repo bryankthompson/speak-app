@@ -156,3 +156,18 @@ def test_main_invalid_registry_exits_3(repo, monkeypatch, capsys):
     assert code == 3 and calls["speak"] == 0
     assert "invalid" in capsys.readouterr().err
     assert "\tinvalid\t" in log_lines()[-1]
+
+
+def test_here_json_and_check_are_machine_readable(repo, monkeypatch, capsys):
+    monkeypatch.chdir(repo)
+    registry(True, {})
+    assert repo_gate.main(["here", "--check"]) == 1  # gate on, not listed: silent
+    assert repo_gate.main(["here", "--json"]) == 0
+    off = json.loads(capsys.readouterr().out)
+    assert off == {"repo": str(repo), "listed": False, "voices": False, "gate": True, "speaks": False}
+    registry(True, {str(repo): {"voices": True}})
+    assert repo_gate.main(["here", "--check"]) == 0
+    assert repo_gate.main(["here", "--json"]) == 0
+    on = json.loads(capsys.readouterr().out)
+    assert on["speaks"] is True and on["voices"] is True and on["listed"] is True
+    assert repo_gate.main(["here", "--bogus"]) == 2

@@ -8,7 +8,7 @@ Gate off or no registry: everything speaks (the default). Gate on: a repo speaks
 Warnings (`speak --alert`) always speak, in the repo's own voice setting. Worktrees follow their main checkout.
 Every decision is appended to ~/.cache/speak-app/speech.log, also while the gate is off.
 
-    repo_gate.py here [on [--plain] | off]   show or edit this repo's entry
+    repo_gate.py here [on [--plain] | off] [--json | --check]   show or edit this repo's entry (--json: one object; --check: exit 0 speaks, 1 silent)
     repo_gate.py repos                       repos seen in the last 7 days
     repo_gate.py gate on|off                 switch the gate
 SPEAK_REPOS and SPEAK_LOG override the two paths (tests only).
@@ -102,6 +102,8 @@ def log(reason, repo, text=""):
 
 
 def cmd_here(args):
+    as_json, check = "--json" in args, "--check" in args
+    args = [a for a in args if a not in ("--json", "--check")]
     root, _ = repo_root()
     reg = load() or {}
     repos = reg.setdefault("repos", {})
@@ -112,11 +114,19 @@ def cmd_here(args):
         repos.pop(str(root), None)
         save(reg)
     elif args:
-        print("usage: speak --here [on [--plain] | off]", file=sys.stderr)
+        print("usage: speak --here [on [--plain] | off] [--json | --check]", file=sys.stderr)
         return 2
     entry = repos.get(str(root))
+    gate = bool(reg.get("gate"))
+    speaks = (not gate) or entry is not None
+    if check:  # no output: exit 0 when this repo would speak, 1 when it would not
+        return 0 if speaks else 1
+    if as_json:
+        print(json.dumps({"repo": str(root), "listed": entry is not None, "voices": speaks and (entry is None or entry.get("voices") is not False),
+                          "gate": gate, "speaks": speaks}))
+        return 0
     state = "not listed" if entry is None else ("listed, plain voice" if entry.get("voices") is False else "listed, cockpit voices")
-    print(f"{root}: {state}; gate {'on' if reg.get('gate') else 'off'}")
+    print(f"{root}: {state}; gate {'on' if gate else 'off'}")
     return 0
 
 
