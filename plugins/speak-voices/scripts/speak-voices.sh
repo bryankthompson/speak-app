@@ -33,7 +33,8 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(sys.argv[1]) / "tts"))
 import soundbite
-gone = [e["file"] for e in soundbite._load().values() if not (soundbite.repo_dir() / e["file"]).exists()]
+gone = [str(e.get("file") or "<entry without file>") for e in soundbite._load().values()
+        if not e.get("file") or not (soundbite.repo_dir() / e["file"]).exists()]
 print(f"missing files: {len(gone)}")
 for f in gone[:10]:
     print(f"  {f}")
