@@ -1,0 +1,27 @@
+{
+  "openai_model": "tts-1-hd",
+  "elevenlabs_model": "eleven_turbo_v2_5",
+  "elevenlabs_settings": {"stability": 0.5, "similarity_boost": 0.5},
+  "clauses": [
+    "what next?", "go or no-go?", "merge it?", "approve this?", "run it now?",
+    "needs your answer", "has a question for you", "is done", "is ready for review",
+    "is blocked", "held your message", "deploy now?"
+  ],
+  "cast": [
+    {"name": "governor",       "provider": "openai",     "voice": "onyx",    "character": "deep, calm, over everything"},
+    {"name": "harness lead",   "provider": "openai",     "voice": "echo",    "character": "steady engineer"},
+    {"name": "hades",          "provider": "openai",     "voice": "fable",   "character": "dramatic storyteller"},
+    {"name": "studio",         "provider": "openai",     "voice": "shimmer", "character": "soft, musical"},
+    {"name": "lyrika",         "provider": "openai",     "voice": "nova",    "character": "bright, lyrical"},
+    {"name": "model-evals",    "provider": "openai",     "voice": "alloy",   "character": "neutral, clinical analyst"},
+    {"name": "speak-app",      "provider": "elevenlabs", "voice": "21m00Tcm4TlvDq8ikWAM", "label": "Rachel", "character": "the existing default voice"},
+    {"name": "harness 2",      "provider": "elevenlabs", "voice": "TxGEqnHWrfWFTfGW9XjX", "label": "Josh",   "character": "younger sidekick"},
+    {"name": "studio 2",       "provider": "elevenlabs", "voice": "EXAVITQu4vr4xnSDxMaL", "label": "Bella",  "character": "the second studio"},
+    {"name": "slr-capture",    "provider": "elevenlabs", "voice": "ErXwobaYiN019PkySvjV", "label": "Antoni", "character": "hands-on operator"},
+    {"name": "apply-assist",   "provider": "elevenlabs", "voice": "MF3mGyEYCl7XYWbV9V6O", "label": "Elli",   "character": "friendly helper"},
+    {"name": "server-ops",     "provider": "elevenlabs", "voice": "VR6AewLTigWG4xSOukaG", "label": "Arnold", "character": "gruff ops"},
+    {"name": "vision tracking","provider": "elevenlabs", "voice": "pNInz6obpgDQGcFmaJgB", "label": "Adam",   "character": "precise"},
+    {"name": "converter",      "provider": "elevenlabs", "voice": "yoZ06aMxZJJ28mfd3POQ", "label": "Sam",    "character": "spare"},
+    {"name": "answers-sheet",  "provider": "elevenlabs", "voice": "AZnzlk1XvdvUeBnXmlld", "label": "Domi",   "character": "spare"}
+  ]
+}

@@ -20,6 +20,9 @@ from typing import Optional
 
 from dotenv import load_dotenv
 
+sys.path.insert(0, str(Path(__file__).parent))
+import soundbite
+
 def get_available_voices() -> Optional[list]:
     """
     Get list of available voices from ElevenLabs API.
@@ -152,12 +155,6 @@ def speak_with_elevenlabs(text: str, voice_id: Optional[str] = None, voice_setti
         if env_path.exists():
             load_dotenv(env_path)
         
-        # Get API key
-        api_key = os.getenv("ELEVENLABS_API_KEY")
-        if not api_key:
-            print("ElevenLabs API key not found in environment", file=sys.stderr)
-            return False
-        
         # Default to Rachel voice if not specified
         if not voice_id:
             voice_id = os.getenv("ELEVENLABS_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")
@@ -174,36 +171,47 @@ def speak_with_elevenlabs(text: str, voice_id: Optional[str] = None, voice_setti
             print(f"Invalid voice settings: {voice_settings}", file=sys.stderr)
             return False
         
-        # ElevenLabs API endpoint
-        url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
-        
-        headers = {
-            "Accept": "audio/mpeg",
-            "Content-Type": "application/json",
-            "xi-api-key": api_key
-        }
-        
-        # Get model ID from environment or default
+        # Soundbite repository: model + settings are part of the key because they change the audio
         model_id = os.getenv("ELEVENLABS_MODEL_ID", "eleven_turbo_v2_5")
-        
-        data = {
-            "text": text,
-            "model_id": model_id,
-            "voice_settings": voice_settings
-        }
-        
-        # Make API request
-        response = requests.post(url, json=data, headers=headers)
-        
-        if response.status_code != 200:
-            print(f"ElevenLabs API error: {response.status_code} - {response.text}", file=sys.stderr)
-            return False
-        
-        # Save audio to temporary file and play
-        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp_file:
-            tmp_file.write(response.content)
-            tmp_path = tmp_file.name
-        
+        bite_model = f"{model_id}|s{voice_settings['stability']:g}|b{voice_settings['similarity_boost']:g}"
+        bite = soundbite.lookup(text, "elevenlabs", voice_id, bite_model)
+        if bite:
+            print(f"soundbite hit: {bite.name}", file=sys.stderr)
+            tmp_path = str(bite)
+            keep = True
+        else:
+            api_key = os.getenv("ELEVENLABS_API_KEY")
+            if not api_key:
+                print("ElevenLabs API key not found in environment", file=sys.stderr)
+                return False
+
+            url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
+            headers = {
+                "Accept": "audio/mpeg",
+                "Content-Type": "application/json",
+                "xi-api-key": api_key
+            }
+            data = {
+                "text": text,
+                "model_id": model_id,
+                "voice_settings": voice_settings
+            }
+
+            response = requests.post(url, json=data, headers=headers)
+            if response.status_code != 200:
+                print(f"ElevenLabs API error: {response.status_code} - {response.text}", file=sys.stderr)
+                return False
+
+            saved = soundbite.save(text, "elevenlabs", voice_id, response.content, bite_model)
+            if saved:
+                tmp_path = str(saved)
+                keep = True
+            else:
+                keep = False
+                with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp_file:
+                    tmp_file.write(response.content)
+                    tmp_path = tmp_file.name
+
         # Play using pygame
         pygame.mixer.init()
         pygame.mixer.music.load(tmp_path)
@@ -215,7 +223,8 @@ def speak_with_elevenlabs(text: str, voice_id: Optional[str] = None, voice_setti
         
         # Cleanup
         pygame.mixer.quit()
-        os.unlink(tmp_path)
+        if not keep:
+            os.unlink(tmp_path)
         
         return True
         

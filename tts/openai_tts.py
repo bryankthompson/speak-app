@@ -21,8 +21,30 @@ from typing import Optional, Literal
 
 from dotenv import load_dotenv
 
+sys.path.insert(0, str(Path(__file__).parent))
+import soundbite
+
 # Voice options
 VoiceType = Literal["alloy", "echo", "fable", "onyx", "nova", "shimmer"]
+
+
+# 1Password item holding the current key (override with OPENAI_OP_ITEM)
+OP_ITEM = os.getenv("OPENAI_OP_ITEM", "2bh7y4x2rbzm673mls67j6j2ry")
+
+
+def _key_from_1password() -> Optional[str]:
+    """Read the OpenAI key via the `op` CLI. Returns None (and says why) if that fails."""
+    import subprocess
+    try:
+        r = subprocess.run(["op", "item", "get", OP_ITEM, "--fields", "credential", "--reveal"],
+                           capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        print(f"1Password lookup failed: {e}", file=sys.stderr)
+        return None
+    if r.returncode != 0:
+        print(f"1Password lookup failed: {r.stderr.strip()[:120]}", file=sys.stderr)
+        return None
+    return r.stdout.strip() or None
 
 def speak_with_openai(
     text: str, 
@@ -43,6 +65,7 @@ def speak_with_openai(
         True if successful, False otherwise
     """
     try:
+        import openai
         from openai import OpenAI
         import pygame
         
@@ -51,29 +74,42 @@ def speak_with_openai(
         if env_path.exists():
             load_dotenv(env_path)
         
-        # Get API key
-        api_key = os.getenv("OPENAI_API_KEY")
-        if not api_key:
-            print("OpenAI API key not found in environment", file=sys.stderr)
-            return False
-        
-        # Initialize OpenAI client
-        client = OpenAI(api_key=api_key)
-        
-        # Create speech
-        response = client.audio.speech.create(
-            model=model,
-            voice=voice,
-            input=text,
-            speed=speed
-        )
-        
-        # Save to temporary file and play
-        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp_file:
-            tmp_path = tmp_file.name
-            # Write response content to file (avoiding deprecated stream_to_file)
-            for chunk in response.iter_bytes():
-                tmp_file.write(chunk)
+        # Soundbite repository: a stored phrase plays without touching the API (or the key)
+        keep = True
+        tmp_path = soundbite.lookup(text, "openai", voice, model, speed)
+        if tmp_path:
+            print(f"soundbite hit: {tmp_path.name}", file=sys.stderr)
+            tmp_path = str(tmp_path)
+        else:
+            # Get API key: the environment first, 1Password when it is missing or rejected
+            api_key = os.getenv("OPENAI_API_KEY") or _key_from_1password()
+            if not api_key:
+                print("OpenAI API key not found in environment or 1Password", file=sys.stderr)
+                return False
+
+            def create(key):
+                return OpenAI(api_key=key).audio.speech.create(
+                    model=model, voice=voice, input=text, speed=speed)
+
+            try:
+                response = create(api_key)
+            except openai.AuthenticationError:
+                print("OpenAI rejected the environment key; trying 1Password", file=sys.stderr)
+                op_key = _key_from_1password()
+                if not op_key or op_key == api_key:
+                    raise
+                response = create(op_key)
+            audio = b"".join(response.iter_bytes())
+
+            saved = soundbite.save(text, "openai", voice, audio, model, speed)
+            if saved:
+                tmp_path = str(saved)
+            else:
+                # Repo unavailable: play from a throwaway temp file as before
+                keep = False
+                with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp_file:
+                    tmp_path = tmp_file.name
+                    tmp_file.write(audio)
 
         # Detect WSL and use appropriate playback method
         import subprocess
@@ -118,10 +154,11 @@ def speak_with_openai(
             finally:
                 # Cleanup after playback
                 time.sleep(0.5)
-                try:
-                    os.unlink(tmp_path)
-                except:
-                    pass
+                if not keep:
+                    try:
+                        os.unlink(tmp_path)
+                    except:
+                        pass
         else:
             # Native Linux: Use pygame
             try:
@@ -135,14 +172,16 @@ def speak_with_openai(
 
                 # Cleanup
                 pygame.mixer.quit()
-                os.unlink(tmp_path)
+                if not keep:
+                    os.unlink(tmp_path)
             except Exception as e:
                 print(f"pygame audio playback error: {e}", file=sys.stderr)
                 # Cleanup on error
-                try:
-                    os.unlink(tmp_path)
-                except:
-                    pass
+                if not keep:
+                    try:
+                        os.unlink(tmp_path)
+                    except:
+                        pass
         
         return True
         
