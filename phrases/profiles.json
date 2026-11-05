@@ -153,6 +153,76 @@
       "character": "wise, mature, balanced",
       "label": "Bill",
       "account": "api 2"
+    },
+    "darren": {
+      "provider": "elevenlabs",
+      "voice": "9TYDukkUVpJPDSIuv3ir",
+      "character": "calm, deep Irish male",
+      "label": "Darren",
+      "account": "api 2 (shared library)"
+    },
+    "christopher": {
+      "provider": "elevenlabs",
+      "voice": "G17SuINrv2H9FC6nvetn",
+      "character": "gentle, trustworthy British male",
+      "label": "Christopher",
+      "account": "api 2 (shared library)"
+    },
+    "samara": {
+      "provider": "elevenlabs",
+      "voice": "19STyYD15bswVz51nqLf",
+      "character": "smooth, classy British female",
+      "label": "Samara X",
+      "account": "api 2 (shared library)"
+    },
+    "steve": {
+      "provider": "elevenlabs",
+      "voice": "aGkVQvWUZi16EH8aZJvT",
+      "character": "casual Australian male",
+      "label": "Steve",
+      "account": "api 2 (shared library)"
+    },
+    "arabella": {
+      "provider": "elevenlabs",
+      "voice": "aEO01A4wXwd1O8GPgGlF",
+      "character": "raspy young Australian female",
+      "label": "Arabella",
+      "account": "api 2 (shared library)"
+    },
+    "jon": {
+      "provider": "elevenlabs",
+      "voice": "MFZUKuGQUsGJPQjTS4wC",
+      "character": "warm, grounded American storyteller",
+      "label": "Jon",
+      "account": "api 2 (shared library)"
+    },
+    "gallagher": {
+      "provider": "elevenlabs",
+      "voice": "DbwWo4rVEd5NrejHYUnm",
+      "character": "clear, confident Irish female",
+      "label": "Jessica Gallagher",
+      "account": "api 2 (shared library)"
+    },
+    "bogart": {
+      "provider": "elevenlabs",
+      "voice": "g6xIsTj2HwM6VR4iXFCw",
+      "character": "chatty, friendly American female",
+      "label": "Jessica Anne Bogart",
+      "account": "api 2 (shared library)"
+    },
+    "spuds": {
+      "provider": "elevenlabs",
+      "voice": "NOpBlnGInO9m6vDvFkFC",
+      "character": "gentle old American grandpa",
+      "label": "Spuds Oxley",
+      "account": "api 2 (shared library)"
+    },
+    "allison": {
+      "provider": "elevenlabs",
+      "voice": "Se2Vw1WbHmGbBbyWTuu4",
+      "character": "inviting, velvety British female",
+      "label": "Allison",
+      "account": "api 2 (shared library)"
     }
   },
   "assignments": {
