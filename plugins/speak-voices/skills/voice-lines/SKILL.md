@@ -5,6 +5,11 @@ description: How speak-app turns a cockpit line like `speak "hades: go or no-go?
 
 # How a cockpit line is spoken
 
+**First, is this repo allowed to speak?** With the per-repo gate on (`~/.config/speak-app/repos.json`), `speak` is silent in a repo
+that is not listed: it prints `skipped: <repo> not enabled; run: speak --here on` and exits 0. Enable a repo with `speak --here on`
+from inside it (lanes and worktrees follow their main checkout). Warnings use `speak --alert "text"`, which always speaks.
+Cockpit lines such as "needs your answer" are not warnings; they follow the repo's setting. `speak --repos` shows who spoke or was skipped.
+
 `speak "<name>: <text>"` is split at the first `": "`. The name part must be 40 characters or fewer.
 
 1. **Name.** Lower-cased and matched against the assignments in `phrases/profiles.json`. If no match, a trailing
