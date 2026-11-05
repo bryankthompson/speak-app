@@ -40,3 +40,36 @@ def test_missing_file_or_corrupt_manifest_is_a_miss_not_a_crash(repo):
     assert soundbite.lookup("Hi", "openai", "onyx", "tts-1") is None
     (repo / "manifest.json").write_text("{not json")
     assert soundbite.lookup("Hi", "openai", "onyx", "tts-1") is None
+
+
+def _writer(args):
+    repo, start = args
+    import os
+    os.environ["SOUNDBITE_DIR"] = repo
+    for i in range(start, start + 15):
+        soundbite.save(f"phrase {i}", "openai", "onyx", b"A" * 2000, "tts-1", 1.0)
+
+
+def test_parallel_recorders_do_not_lose_manifest_entries(repo):
+    """Two recording jobs ran at once and silently dropped entries before the manifest was locked."""
+    import multiprocessing
+    with multiprocessing.get_context("fork").Pool(4) as pool:
+        pool.map(_writer, [(str(repo), n * 15) for n in range(4)])
+    assert len(soundbite._load()) == 60
+
+
+def test_adopt_reindexes_a_clip_that_is_on_disk_but_not_in_the_manifest(repo):
+    soundbite.save("Build complete", "openai", "onyx", b"A" * 2000, "tts-1")
+    (repo / "manifest.json").write_text("{}")  # the lost-update symptom
+    assert soundbite.lookup("Build complete", "openai", "onyx", "tts-1") is None
+    assert soundbite.adopt("Build complete", "openai", "onyx", "tts-1") is True
+    assert soundbite.lookup("Build complete", "openai", "onyx", "tts-1")
+    assert soundbite.adopt("Build complete", "openai", "onyx", "tts-1") is False  # already indexed
+
+
+def test_adopt_ignores_missing_and_tiny_files(repo):
+    assert soundbite.adopt("never recorded", "openai", "onyx", "tts-1") is False
+    p = soundbite.save("tiny", "openai", "onyx", b"x" * 2000, "tts-1")
+    p.write_bytes(b"fake")
+    (repo / "manifest.json").write_text("{}")
+    assert soundbite.adopt("tiny", "openai", "onyx", "tts-1") is False

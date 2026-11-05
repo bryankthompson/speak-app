@@ -1,0 +1,237 @@
+{
+  "profiles": {
+    "onyx": {
+      "provider": "openai",
+      "voice": "onyx",
+      "character": "deep, calm, over everything"
+    },
+    "echo": {
+      "provider": "openai",
+      "voice": "echo",
+      "character": "steady engineer"
+    },
+    "fable": {
+      "provider": "openai",
+      "voice": "fable",
+      "character": "dramatic storyteller"
+    },
+    "shimmer": {
+      "provider": "openai",
+      "voice": "shimmer",
+      "character": "soft, musical"
+    },
+    "nova": {
+      "provider": "openai",
+      "voice": "nova",
+      "character": "bright, lyrical"
+    },
+    "alloy": {
+      "provider": "openai",
+      "voice": "alloy",
+      "character": "neutral, clinical analyst"
+    },
+    "rachel": {
+      "provider": "elevenlabs",
+      "voice": "21m00Tcm4TlvDq8ikWAM",
+      "character": "the existing default voice",
+      "label": "Rachel"
+    },
+    "josh": {
+      "provider": "elevenlabs",
+      "voice": "TxGEqnHWrfWFTfGW9XjX",
+      "character": "younger sidekick",
+      "label": "Josh"
+    },
+    "sarah": {
+      "provider": "elevenlabs",
+      "voice": "EXAVITQu4vr4xnSDxMaL",
+      "character": "the second studio",
+      "label": "Sarah"
+    },
+    "antoni": {
+      "provider": "elevenlabs",
+      "voice": "ErXwobaYiN019PkySvjV",
+      "character": "hands-on operator",
+      "label": "Antoni"
+    },
+    "elli": {
+      "provider": "elevenlabs",
+      "voice": "MF3mGyEYCl7XYWbV9V6O",
+      "character": "friendly helper",
+      "label": "Elli"
+    },
+    "arnold": {
+      "provider": "elevenlabs",
+      "voice": "VR6AewLTigWG4xSOukaG",
+      "character": "gruff ops",
+      "label": "Arnold"
+    },
+    "adam": {
+      "provider": "elevenlabs",
+      "voice": "pNInz6obpgDQGcFmaJgB",
+      "character": "precise",
+      "label": "Adam"
+    },
+    "sam": {
+      "provider": "elevenlabs",
+      "voice": "yoZ06aMxZJJ28mfd3POQ",
+      "character": "spare",
+      "label": "Sam"
+    },
+    "domi": {
+      "provider": "elevenlabs",
+      "voice": "AZnzlk1XvdvUeBnXmlld",
+      "character": "spare",
+      "label": "Domi"
+    },
+    "george": {
+      "provider": "elevenlabs",
+      "voice": "JBFqnCBsd6RMkjVDRZzb",
+      "character": "warm British storyteller",
+      "label": "George",
+      "account": "api 2"
+    },
+    "daniel": {
+      "provider": "elevenlabs",
+      "voice": "onwK4e9ZLuTAKqWW03F9",
+      "character": "steady British broadcaster",
+      "label": "Daniel",
+      "account": "api 2"
+    },
+    "lily": {
+      "provider": "elevenlabs",
+      "voice": "pFZP5JQG7iQjIQuC4Bku",
+      "character": "velvety British actress",
+      "label": "Lily",
+      "account": "api 2"
+    },
+    "brian": {
+      "provider": "elevenlabs",
+      "voice": "nPczCjzI2devNBz1zQrb",
+      "character": "deep, resonant, comforting",
+      "label": "Brian",
+      "account": "api 2"
+    },
+    "alice": {
+      "provider": "elevenlabs",
+      "voice": "Xb7hH8MSUJpSbSDYk0k2",
+      "character": "clear British educator",
+      "label": "Alice",
+      "account": "api 2"
+    },
+    "matilda": {
+      "provider": "elevenlabs",
+      "voice": "XrExE9yKIg1WjnnlVkGX",
+      "character": "upbeat professional",
+      "label": "Matilda",
+      "account": "api 2"
+    },
+    "callum": {
+      "provider": "elevenlabs",
+      "voice": "N2lVS1w4EtoT3dr4eOWO",
+      "character": "husky trickster",
+      "label": "Callum",
+      "account": "api 2"
+    },
+    "jessica": {
+      "provider": "elevenlabs",
+      "voice": "cgSgspJ2msm6clMCkdW9",
+      "character": "playful, bright, warm",
+      "label": "Jessica",
+      "account": "api 2"
+    },
+    "harry": {
+      "provider": "elevenlabs",
+      "voice": "SOYHLrjzK2X1ezoPC6cr",
+      "character": "fierce warrior",
+      "label": "Harry",
+      "account": "api 2"
+    },
+    "bill": {
+      "provider": "elevenlabs",
+      "voice": "pqHfZKP75CvOlQylNhV4",
+      "character": "wise, mature, balanced",
+      "label": "Bill",
+      "account": "api 2"
+    }
+  },
+  "assignments": {
+    "governor": {
+      "profile": "onyx"
+    },
+    "harness lead": {
+      "profile": "echo"
+    },
+    "hades": {
+      "profile": "fable"
+    },
+    "studio": {
+      "profile": "shimmer"
+    },
+    "lyrika": {
+      "profile": "nova"
+    },
+    "model-evals": {
+      "profile": "alloy"
+    },
+    "speak-app": {
+      "profile": "rachel"
+    },
+    "harness 2": {
+      "profile": "josh"
+    },
+    "studio 2": {
+      "profile": "sarah"
+    },
+    "slr-capture": {
+      "profile": "antoni"
+    },
+    "apply-assist": {
+      "profile": "elli"
+    },
+    "server-ops": {
+      "profile": "arnold"
+    },
+    "vision tracking": {
+      "profile": "adam"
+    },
+    "converter": {
+      "profile": "sam"
+    },
+    "answers-sheet": {
+      "profile": "domi"
+    },
+    "claude-dev-harness": {
+      "profile": "echo",
+      "say": "harness lead"
+    },
+    "dev-harness": {
+      "profile": "echo",
+      "say": "harness lead"
+    },
+    "claude-dev-harness-dev": {
+      "profile": "josh",
+      "say": "harness 2"
+    },
+    "nashville-suno-studio": {
+      "profile": "shimmer",
+      "say": "studio"
+    },
+    "nashville-suno-studio-dev": {
+      "profile": "sarah",
+      "say": "studio 2"
+    },
+    "lyrika-apps": {
+      "profile": "nova",
+      "say": "lyrika"
+    },
+    "vision-tracking-core": {
+      "profile": "adam",
+      "say": "vision tracking"
+    },
+    "2d-to-3d-sbs-converter": {
+      "profile": "sam",
+      "say": "converter"
+    }
+  }
+}
