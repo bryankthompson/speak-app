@@ -235,6 +235,15 @@ speak-with-tracking "Hello world"
 # Output: [TTS: 11 chars, ~$0.00017 via openai]
 ```
 
+## Voices
+
+Each cockpit can have its own voice, and a line like `speak "hades: go or no-go?"` plays from stored clips with no
+API call. `speak --profiles` lists the voices, `speak --profile ID` plays one, `speak --assign COCKPIT ID` sets one.
+
+- [Voices guide](docs/VOICES.md) - profiles, the soundbite library, recording, cost and health
+- [Voices for cockpits](docs/VOICES-COCKPIT.md) - how dev-harness cockpit leads use it
+- [speak-voices plugin](plugins/speak-voices/README.md) - `/voices`, `/voice-assign`, `/voice-audition`, `/voice-health` in Claude Code
+
 ## 📖 Documentation
 
 ### Command Options

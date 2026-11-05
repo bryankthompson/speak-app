@@ -9,3 +9,4 @@ Spoken audio is paid for once and stored. `speak` looks in the library first and
 - **Gallery**: `./run_local.sh [--open]` shows every voice and the library on `127.0.0.1:8765` (`--stop`, `--status`).
 - **Backup**: `~/soundbite` and this repo's `phrases/` are in the nightly encrypted `repo-backup`. Restore into a scratch folder: `~/bin/repo-backup restore soundbite --identity KEYFILE --to DIR` (the age key is held by the operator).
 - `phrases/corpus.tsv` (mined real phrases) stays local and is git-ignored.
+- Full guide to profiles, cockpit lines, recording and health: docs/VOICES.md.

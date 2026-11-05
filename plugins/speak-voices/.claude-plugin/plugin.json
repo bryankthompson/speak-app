@@ -1,0 +1,10 @@
+{
+  "name": "speak-voices",
+  "version": "0.1.0",
+  "description": "Voice profiles for speak-app from inside Claude Code: /voices lists profiles and clip coverage, /voice-assign points a cockpit at a profile, /voice-audition plays a profile's stored clips, /voice-health checks the soundbite library. Calls the speak-app checkout at $SPEAK_APP_DIR (default ~/speak-app); no API calls.",
+  "author": {
+    "name": "Bryan Thompson"
+  },
+  "homepage": "https://github.com/bryankthompson/speak-app",
+  "repository": "https://github.com/bryankthompson/speak-app"
+}

@@ -1,0 +1,17 @@
+{
+  "name": "speak-app",
+  "owner": {
+    "name": "Bryan Thompson"
+  },
+  "metadata": {
+    "description": "speak-app's Claude Code plugins. speak-voices drives the voice profiles and the soundbite library of a local speak-app checkout. See docs/VOICES.md."
+  },
+  "plugins": [
+    {
+      "name": "speak-voices",
+      "source": "./plugins/speak-voices",
+      "description": "/voices, /voice-assign, /voice-audition and /voice-health over a speak-app checkout ($SPEAK_APP_DIR, default ~/speak-app). Plays only stored clips; never calls a TTS API.",
+      "homepage": "https://github.com/bryankthompson/speak-app"
+    }
+  ]
+}
