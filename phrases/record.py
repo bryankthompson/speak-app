@@ -60,13 +60,23 @@ def main():
     ap.add_argument("--assigned", action="store_true", help="record every assigned cockpit's name + menu (the default)")
     ap.add_argument("--dry-run", action="store_true")
     a = ap.parse_args()
+    unknown = [p for p in (a.profile or []) if p not in PROFILES["profiles"]]
+    if unknown:
+        print(f"unknown profile id(s): {', '.join(unknown)} (see phrases/profiles.json)", file=sys.stderr)
+        return 2
     model = bite_model(a.provider)
     if a.reindex:
         n = sum(soundbite.adopt(t, a.provider, c["voice"], model, 1.0)
                 for c, t in jobs(a.provider, a.profile, a.only.split(",") if a.only else None))
         print(f"{a.provider}: re-indexed {n} clip(s) that were on disk but not in the manifest", file=sys.stderr)
         return 0
-    todo = [(c, t) for c, t in jobs(a.provider, a.profile, a.only.split(',') if a.only else None) if not soundbite.lookup(t, a.provider, c["voice"], model, 1.0)]
+    stored = soundbite._load()  # read the manifest once, not once per clip
+
+    def have(c, t):
+        e = stored.get(soundbite.make_key(t, a.provider, c["voice"], model, 1.0))
+        return bool(e) and (soundbite.repo_dir() / e["file"]).exists()
+
+    todo = [(c, t) for c, t in jobs(a.provider, a.profile, a.only.split(',') if a.only else None) if not have(c, t)]
     chars = sum(len(t) for _, t in todo)
     price = f"${chars * OPENAI_USD_PER_M[CFG['openai_model']] / 1e6:.3f}" if a.provider == "openai" else f"{chars} chars = {chars // 2} credits at the measured 0.5/char ({chars} worst case)"
     print(f"{a.provider}: {len(todo)} clips to record, {chars} chars, {price} (model {model})", file=sys.stderr)

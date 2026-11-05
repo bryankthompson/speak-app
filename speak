@@ -44,6 +44,9 @@ OPTIONS:
     --similarity-boost BOOST Set voice similarity boost (0.0-1.0) for ElevenLabs
     --list-voices            List available voices for ElevenLabs
     --test-voice VOICE       Test a specific voice
+    --profiles               List voice profiles, their cockpits and clip coverage
+    --assign COCKPIT PROFILE Give a cockpit a voice profile
+    --profile ID [TEXT]      Audition a profile from stored clips (no API call)
     -h, --help               Show this help message
 
 EXAMPLES:
