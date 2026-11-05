@@ -190,6 +190,7 @@ def main():
     parser.add_argument('--stability', type=float, help='Voice stability (0.0-1.0)')
     parser.add_argument('--similarity-boost', type=float, help='Voice similarity boost (0.0-1.0)')
     parser.add_argument('--provider', help='Specific provider to use')
+    parser.add_argument('--alert', action='store_true', help='A warning: always speaks (per-repo gate)')
     
     args = parser.parse_args()
     
@@ -204,9 +205,20 @@ def main():
         ]
         text = random.choice(messages)
     
+    # Per-repo gate: a repo not listed while the gate is on stays silent (warnings always speak)
+    sys.path.insert(0, str(Path(__file__).parent))
+    import repo_gate
+    allow, voices, repo, reason = repo_gate.decide(args.alert)
+    repo_gate.log(reason, repo, text)
+    if reason.startswith("invalid"):
+        print(f"speak: {reason}; fix or remove the registry", file=sys.stderr)
+        sys.exit(3)
+    if not allow:
+        print(f"skipped: {repo} not enabled; run: speak --here on")
+        sys.exit(0)
+
     # A line naming a cast lead ("hades: go or no-go?") is spoken in that lead's voice from the soundbite library
-    if not args.voice_id and os.getenv("TTS_ENABLED", "true") != "false":
-        sys.path.insert(0, str(Path(__file__).parent))
+    if voices and not args.voice_id and os.getenv("TTS_ENABLED", "true") != "false":
         import phrase_join
         if phrase_join.try_join(text):
             sys.exit(0)

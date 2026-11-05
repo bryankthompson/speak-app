@@ -55,6 +55,8 @@ For complete installation instructions, see **[INSTALLATION.md](INSTALLATION.md)
 - **Record**: `phrases/record.py --provider P [--profile ID | --only IDS | --reindex]`, run `--dry-run` first; it and `phrases/sfx.py` call paid APIs on purpose (free-text lines also pay once)
 - **Plugin**: `plugins/speak-voices` (Claude Code), docs/VOICES-COCKPIT.md for cockpit use; `tests/test_voices_docs.py` keeps the docs' flags honest
 
+- **Per-repo gate**: `tts/repo_gate.py` (registry `~/.config/speak-app/repos.json`, log `speech.log`); gate runs in `tts_provider.main` before `phrase_join`; `speak --alert` = warning, always speaks (docs/VOICES.md)
+
 ### Observability System (`tts/observability.py`)
 - **Event Priority Levels**: CRITICAL (100%) → HIGH (80%) → NORMAL (50%) → LOW (20%) → MINIMAL (5%)
 - **Rate Limiting**: Per-category limits to prevent audio spam

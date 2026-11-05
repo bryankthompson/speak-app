@@ -471,3 +471,9 @@ def quality_test_cases():
             "expected_quality": "medium"
         }
     ]
+
+@pytest.fixture(autouse=True)
+def _isolated_speech_gate(tmp_path, monkeypatch):
+    """Tests never read the real repo registry or write the real speech log."""
+    monkeypatch.setenv("SPEAK_REPOS", str(tmp_path / "gate" / "repos.json"))
+    monkeypatch.setenv("SPEAK_LOG", str(tmp_path / "gate" / "speech.log"))

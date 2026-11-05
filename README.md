@@ -225,6 +225,10 @@ speak-costs
 speak-costs --projection
 ```
 
+### Per-repo control
+
+`speak --here [on [--plain]|off]`, `speak --repos`, `speak --gate on|off` and `speak --alert` decide which repos may speak; see [docs/VOICES.md](docs/VOICES.md#per-repo-control).
+
 ### `speak-with-tracking` - Cost Tracking
 
 Real-time cost display after each use:

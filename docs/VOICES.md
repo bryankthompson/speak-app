@@ -56,6 +56,27 @@ All of these are read-only and make no API call unless the table says otherwise.
 `speak` (lines, `--profiles`, `--assign`, `--profile`) at another profiles file, for example a copy to try an
 assignment on; `record.py` ignores it.
 
+## Per-repo control
+
+One central file, `~/.config/speak-app/repos.json`, decides which repos speak:
+
+    {"gate": true, "repos": {"/abs/path/to/main/checkout": {"voices": true}}}
+
+With no file, or `"gate": false`, everything speaks as before. With the gate on, a repo speaks only if it is listed.
+`"voices": false` gives that repo the plain default voice (no cockpit voice, no name+clause join). Worktrees and lanes
+follow their main checkout; a folder outside git uses its nearest listed parent, else stays silent.
+
+- `speak --here` shows this repo's entry; `speak --here on` lists it (add the word `--plain` after `on` for the plain voice); `speak --here off` removes it.
+- `speak --repos` lists the repos seen in the last 7 days with counts, whether each is listed, and the gate state.
+- `speak --gate on` / `speak --gate off` switches the gate.
+- `speak --alert "text"` marks a warning: it always speaks, in the repo's own voice setting (plain if unlisted).
+  Warnings are errors and failures, safety blocks, budget and spend, credits, and disk or keys low or expired.
+  `speak --test` is an alert.
+
+A skipped line prints `skipped: REPO not enabled; run: speak --here on` and exits 0. An invalid registry skips
+non-alert lines with the reason on stderr and exit 3; alerts still speak. Every decision (spoke, skipped, alert,
+invalid) is appended to `~/.cache/speak-app/speech.log`, also while the gate is off.
+
 ## How a cockpit line is resolved
 
 `speak "NAME: TEXT"` is split at the first `": "`; the name must be 40 characters or fewer. Code: `tts/phrase_join.py`.

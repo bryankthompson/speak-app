@@ -44,6 +44,10 @@ OPTIONS:
     --similarity-boost BOOST Set voice similarity boost (0.0-1.0) for ElevenLabs
     --list-voices            List available voices for ElevenLabs
     --test-voice VOICE       Test a specific voice
+    --alert                  Mark the line a warning: always speaks, whatever the per-repo gate says
+    --here [on [--plain]|off] Show or set whether this repo speaks (central registry)
+    --repos                  Repos that spoke or were skipped in the last 7 days
+    --gate on|off            Switch the per-repo gate (off: everything speaks)
     --profiles               List voice profiles, their cockpits and clip coverage
     --assign COCKPIT PROFILE Give a cockpit a voice profile
     --profile ID [TEXT]      Audition a profile from stored clips (no API call)
@@ -153,6 +157,7 @@ disable_tts() {
 test_tts() {
     local test_message="${1:-TTS system test successful. Voice synthesis is working correctly.}"
     echo -e "${BLUE}Testing TTS with message: \"$test_message\"${NC}"
+    ALERT=true
     speak_text "$test_message"
 }
 
@@ -188,17 +193,28 @@ speak_text() {
     if [[ "$provider" != "auto" ]]; then
         cmd_args+=("--provider" "$provider")
     fi
+    if [[ "$ALERT" == "true" ]]; then
+        cmd_args+=("--alert")
+    fi
     
     # Call the TTS provider (execute directly to use uv shebang)
-    "$TTS_PROVIDER_SCRIPT" "${cmd_args[@]}" 2>/dev/null || {
+    local err rc=0
+    err=$(mktemp)
+    "$TTS_PROVIDER_SCRIPT" "${cmd_args[@]}" 2>"$err" || rc=$?
+    if [[ $rc -eq 3 ]]; then
+        cat "$err" >&2   # registry invalid: say why
+    fi
+    rm -f "$err"
+    if [[ $rc -ne 0 ]]; then
         echo -e "${RED}TTS failed with provider: $provider${NC}" >&2
-        return 1
-    }
+        return $rc
+    fi
 }
 
 # Parse command line arguments
 PROVIDER="$DEFAULT_PROVIDER"
 SKIP_TTS=false
+ALERT=false
 TEXT=""
 ACTION=""
 VOICE_ID=""
@@ -210,6 +226,19 @@ while [[ $# -gt 0 ]]; do
         -p|--provider)
             PROVIDER="$2"
             shift 2
+            ;;
+        --alert)
+            ALERT=true
+            shift
+            ;;
+        --here)
+            exec python3 "${TTS_DIR}/repo_gate.py" here "${@:2}"
+            ;;
+        --repos)
+            exec python3 "${TTS_DIR}/repo_gate.py" repos
+            ;;
+        --gate)
+            exec python3 "${TTS_DIR}/repo_gate.py" gate "${@:2}"
             ;;
         --profiles)
             exec python3 "${TTS_DIR}/profiles.py" list
