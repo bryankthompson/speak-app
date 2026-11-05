@@ -40,6 +40,8 @@ def load():
         raise ValueError(f"{path} is not valid JSON ({e})")
     if not isinstance(reg, dict) or not isinstance(reg.get("repos", {}), dict):
         raise ValueError(f"{path} must be an object with a 'repos' object")
+    if not all(isinstance(v, dict) for v in reg.get("repos", {}).values()):
+        raise ValueError(f"{path}: every entry in 'repos' must be an object")
     return reg
 
 
