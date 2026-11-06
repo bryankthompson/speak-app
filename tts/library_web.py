@@ -364,7 +364,7 @@ def build_data(library: Path, profiles_file: Path, casting_file: Path) -> tuple[
     profile_data = json.loads(profiles_file.read_text())
     casting = json.loads(casting_file.read_text())
     clauses = casting.get("clauses", [])
-    settings = casting.get("elevenlabs_settings", {})
+    settings = casting.get("elevenlabs_settings") or {}
     eleven_model = (
         f'{casting.get("elevenlabs_model", "")}'
         f'|s{float(settings.get("stability", 0)):g}'
@@ -372,6 +372,7 @@ def build_data(library: Path, profiles_file: Path, casting_file: Path) -> tuple[
     )
     allowed: dict[str, str] = {}
     clips = []
+    manifest = {k: v for k, v in manifest.items() if isinstance(v, dict)}
     for key, entry in manifest.items():
         rel = _safe_rel(entry.get("file"))
         if rel is None:
@@ -383,7 +384,7 @@ def build_data(library: Path, profiles_file: Path, casting_file: Path) -> tuple[
         clips.append({**clip, "file": rel})
     profiles = []
     for pid, p in profile_data.get("profiles", {}).items():
-        provider, voice = p.get("provider", ""), p.get("voice", "")
+        provider, voice = p.get("provider") or "", p.get("voice") or ""
         model = casting.get("openai_model", "") if provider == "openai" else eleven_model
         by_clause = {}
         for clause in clauses:
@@ -534,7 +535,7 @@ def main(argv=None):
         server = ThreadingHTTPServer(
             ("127.0.0.1", args.port), make_handler(data, allowed, library)
         )
-    except (OSError, ValueError, json.JSONDecodeError) as exc:
+    except (OSError, ValueError, TypeError, AttributeError, json.JSONDecodeError) as exc:
         print(f"voice gallery: {exc}", file=sys.stderr)
         return 1
     print(f"http://127.0.0.1:{server.server_port}", flush=True)
