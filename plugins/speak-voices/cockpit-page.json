@@ -1,0 +1,1 @@
+{"title": "speak", "command": ["${CLAUDE_PLUGIN_ROOT}/scripts/speak-voices.sh", "status"]}

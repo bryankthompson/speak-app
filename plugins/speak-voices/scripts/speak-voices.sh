@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # speak-voices: the plugin's one entry point. Runs speak-app's own commands; no API calls.
-#   speak-voices.sh list | assign COCKPIT PROFILE [SAY] | audition ID [TEXT] | health
+#   speak-voices.sh list | assign COCKPIT PROFILE [SAY] | audition ID [TEXT] | health | status
 # The checkout is $SPEAK_APP_DIR, default ~/speak-app. Missing checkout = exit 1 with the reason.
 set -euo pipefail
 
@@ -47,8 +47,28 @@ PY
       echo "unknown cockpit names: none logged"
     fi
     ;;
+  status)
+    # Read-only, fast, plain text (the cockpit's plugin page runs this): gate, this repo, repos, voices, clips.
+    here="$("$dir/speak" --here --json)" || { echo "speak-voices: speak --here failed" >&2; exit 1; }
+    SPEAK_HERE="$here" python3 - "$dir" <<'PY'
+import json, os, sys
+from pathlib import Path
+sys.path.insert(0, str(Path(sys.argv[1]) / "tts"))
+import repo_gate, soundbite
+here = json.loads(os.environ["SPEAK_HERE"])
+reg = repo_gate.load() or {}
+prof = json.loads((Path(sys.argv[1]) / "phrases" / "profiles.json").read_text())
+voices = "cockpit voices" if here["voices"] else "plain voice"
+print(f"gate: {'on' if here['gate'] else 'off (everything speaks)'}")
+print(f"this repo: {here['repo']}")
+print(f"  speaks: {'yes, ' + voices if here['speaks'] else 'no (not enabled; run: speak --here on)'}")
+print(f"repos enabled: {len(reg.get('repos', {}))}")
+print(f"voices: {len(prof['profiles'])} profiles, {len(prof['assignments'])} cockpits assigned")
+print(f"library: {len(soundbite._load())} clips in {soundbite.repo_dir()}")
+PY
+    ;;
   *)
-    echo "usage: speak-voices.sh list | assign COCKPIT PROFILE [SAY] | audition ID [TEXT] | health" >&2
+    echo "usage: speak-voices.sh list | assign COCKPIT PROFILE [SAY] | audition ID [TEXT] | health | status" >&2
     exit 1
     ;;
 esac
