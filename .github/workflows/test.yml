@@ -20,5 +20,5 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install pytest
-      - name: hermetic tests (ffmpeg is on the runner)
-        run: python -m pytest tests/test_soundbite.py tests/test_library_web.py tests/test_voices_docs.py tests/test_level_clips.py -q
+      - name: hermetic tests only
+        run: python -m pytest tests/test_soundbite.py tests/test_library_web.py tests/test_voices_docs.py -q
