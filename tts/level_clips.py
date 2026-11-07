@@ -13,6 +13,8 @@ re-runs itself under `uv run --with ...` when they are missing. Everything else 
 """
 
 import argparse
+import contextlib
+import fcntl
 import importlib.util
 import json
 import os
@@ -60,6 +62,14 @@ def limiting_estimate(peaks, gain_db: float):
 
 def load_manifest(lib: Path) -> dict:
     return json.loads((lib / "manifest.json").read_text())
+
+
+@contextlib.contextmanager
+def manifest_locked(lib: Path):
+    """Same flock soundbite uses, so a concurrent recorder's entries are not lost."""
+    with open(lib / ".manifest.lock", "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        yield
 
 
 def write_json_atomic(path: Path, data: dict) -> None:
@@ -127,6 +137,9 @@ def voice_stats(manifest: dict, results: dict) -> dict:
     for vid, clips in sorted(groups.items()):
         long_clips = [c for c in clips if c["seconds"] >= MIN_MEDIAN_SECONDS]
         basis = long_clips or [c for c in clips if c["lufs"] is not None]
+        if not basis:
+            print(f"skipping {vid}: no clip has a loudness reading", file=sys.stderr)
+            continue
         stats[vid] = {"median_lufs": round(statistics.median(c["lufs"] for c in basis), 2),
                       "max_peak_dbfs": round(max(c["peak"] for c in clips), 2),
                       "peaks": [c["peak"] for c in clips],
@@ -194,14 +207,17 @@ def reencode(src: Path, gain_db: float) -> Path:
     """Gain-adjusted copy next to src (temp file), verified to decode with the same duration."""
     bitrate = probe(src, "bit_rate,duration")
     tmp = src.with_name(f".level-{src.name}")
-    subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(src), "-af", f"volume={gain_db}dB,alimiter=limit={LIMIT_LINEAR}:attack=5:release=50:level=0",
-                    "-c:a", "libmp3lame", "-b:a", str(bitrate["bit_rate"]), "-f", "mp3", str(tmp)],
-                   check=True)
-    new = probe(tmp, "duration")
-    subprocess.run(["ffmpeg", "-v", "error", "-i", str(tmp), "-f", "null", "-"], check=True)
-    if abs(float(new["duration"]) - float(bitrate["duration"])) > DURATION_TOLERANCE_S:
-        tmp.unlink()
-        raise RuntimeError(f"{src}: duration changed {bitrate['duration']} -> {new['duration']}")
+    try:
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(src), "-af", f"volume={gain_db}dB,alimiter=limit={LIMIT_LINEAR}:attack=5:release=50:level=0",
+                        "-c:a", "libmp3lame", "-b:a", str(bitrate["bit_rate"]), "-f", "mp3", str(tmp)],
+                       check=True)
+        new = probe(tmp, "duration")
+        subprocess.run(["ffmpeg", "-v", "error", "-i", str(tmp), "-f", "null", "-"], check=True)
+        if abs(float(new["duration"]) - float(bitrate["duration"])) > DURATION_TOLERANCE_S:
+            raise RuntimeError(f"{src}: duration changed {bitrate['duration']} -> {new['duration']}")
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
     return tmp
 
 
@@ -233,12 +249,19 @@ def cmd_apply(args) -> int:
               f"{len(keys)} clips")
         if args.dry_run:
             continue
+        sizes = {}
         for key in keys:
             path = lib / manifest[key]["file"]
             tmp = reencode(path, v["gain_db"])
             os.replace(tmp, path)
-            manifest[key]["bytes"] = path.stat().st_size
-        write_json_atomic(lib / "manifest.json", manifest)
+            sizes[key] = path.stat().st_size
+        with manifest_locked(lib):
+            fresh = load_manifest(lib)
+            for key, size in sizes.items():
+                if key in fresh:
+                    fresh[key]["bytes"] = size
+            write_json_atomic(lib / "manifest.json", fresh)
+            manifest = fresh
         log["levels"][vid] = {"target": target, "gain_db": v["gain_db"]}
         write_json_atomic(log_path, log)
     return 0
@@ -255,6 +278,9 @@ def cmd_verify(args) -> int:
                 seen[voice_id(e)] = seen.get(voice_id(e), 0) + 1
                 only.add(k)
     results, failures = measure_all(lib, manifest, only)
+    if not results:
+        print("verify measured no clips (empty library or --sample below 1)", file=sys.stderr)
+        return 1
     stats = voice_stats(manifest, results)
     for vid, s in sorted(stats.items(), key=lambda kv: kv[1]["median_lufs"]):
         print(f"{vid:<48}{s['clips']:>6}{s['median_lufs']:>10.2f} LUFS")
