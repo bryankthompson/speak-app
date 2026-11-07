@@ -10,3 +10,4 @@ Spoken audio is paid for once and stored. `speak` looks in the library first and
 - **Backup**: `~/soundbite` and this repo's `phrases/` are in the nightly encrypted `repo-backup`. Restore into a scratch folder: `~/bin/repo-backup restore soundbite --identity KEYFILE --to DIR` (the age key is held by the operator).
 - `phrases/corpus.tsv` (mined real phrases) stays local and is git-ignored.
 - Full guide to profiles, cockpit lines, recording and health: docs/VOICES.md.
+- Loudness leveling across voices (one gain per voice, peak guard, resume journal): docs/LEVELING.md.

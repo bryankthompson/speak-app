@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-DOCS = [ROOT / "docs" / "VOICES.md", ROOT / "docs" / "VOICES-COCKPIT.md"]
+DOCS = [ROOT / "docs" / "VOICES.md", ROOT / "docs" / "VOICES-COCKPIT.md", ROOT / "docs" / "LEVELING.md"]
 PLUGIN = ROOT / "plugins" / "speak-voices"
 
 
@@ -17,7 +17,8 @@ def _code(text):
     """Inline code spans and indented/fenced code lines: where commands are written."""
     spans = re.findall(r"`([^`\n]+)`", text)
     lines = [l.strip() for l in text.splitlines() if l.startswith("    ")]
-    return spans + lines
+    fenced = [l.strip() for block in re.findall(r"```[^\n]*\n(.*?)```", text, re.S) for l in block.splitlines()]
+    return spans + lines + fenced
 
 
 def documented_flags(command):
@@ -53,6 +54,14 @@ def test_every_documented_speak_flag_exists():
 def test_every_documented_record_flag_exists():
     missing = documented_flags("record.py") - argparse_flags("phrases/record.py")
     assert not missing, f"docs name record.py flags it does not define: {sorted(missing)}"
+
+
+def test_every_documented_level_clips_flag_exists():
+    # level_clips.py defines its flags in one loop over subcommands (measure, apply, verify, run); every
+    # add_argument("--x") in it counts, so a flag documented for the wrong subcommand is not caught here.
+    assert {"--library", "--dry-run", "--target"} <= documented_flags("level_clips.py")
+    missing = documented_flags("level_clips.py") - argparse_flags("tts/level_clips.py")
+    assert not missing, f"docs name level_clips.py flags it does not define: {sorted(missing)}"
 
 
 def test_every_documented_soundbite_flag_exists():
