@@ -155,9 +155,8 @@ yet; they are stored for callers that want an earcon.
 ## Gallery (local only)
 
 `./run_local.sh` serves a read-only page of every profile and the library on `http://127.0.0.1:8765`
-(`--port N`, `--open` opens a browser, `--status`, `--stop`). It makes no API calls. Its module,
-`tts/library_web.py`, is not on main yet: it lives on the unmerged branch `lane/voice-gallery`, and `run_local.sh`
-looks for it in a sibling `../speak-app-voice-gallery` checkout until then.
+(`--port N`, `--open` opens a browser, `--status`, `--stop`). It makes no API calls. Its module is
+`tts/library_web.py`.
 
 ## Backups
 
