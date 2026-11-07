@@ -128,6 +128,6 @@ tts/level_clips.py builds the string.
   decoded and encoded again). It exists for clips the guard cannot catch, such as a library leveled before the
   guard read the true peak. Its own check reads ffmpeg's true peak, which on a pure tone at fs/4 reads up to
   0.5 dB above `verify`'s (levels_block skips the file edges), so such a clip may be cut a little more than needed.
-- CI runs only tests/test_soundbite.py; tests/test_level_clips.py is run locally.
+- CI runs tests/test_soundbite.py, test_library_web.py, test_voices_docs.py and test_level_clips.py.
 - A torn last journal line after a power loss is ignored with a warning, not truncated.
 - The first play of a freshly recorded clip is not leveled; it is leveled by the next `apply`.
