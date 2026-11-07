@@ -244,7 +244,7 @@ def git_dirty_paths(lib: Path) -> set:
                          capture_output=True, text=True)
     if out.returncode != 0:
         raise SystemExit(f"{lib} is not a git repository: {out.stderr.strip()}")
-    return {e[3:] for e in out.stdout.split("\0") if e}
+    return {e[3:] for e in out.stdout.split("\0") if e and not Path(e[3:]).name.startswith(".level-")}
 
 
 def reencode(src: Path, gain_db: float, chain: dict) -> Path:
@@ -320,6 +320,14 @@ def cmd_apply(args) -> int:
               f"({plan_id}); the plan was edited", file=sys.stderr)
         return 1
     chain, journal = plan["chain"], read_journal(lib)
+    committed = False
+    if any(j["plan"] != plan_id for j in journal) and not args.dry_run:
+        for stale in lib.rglob(".level-*"):  # re-encode temp files left by a killed run
+            stale.unlink()
+        # a journal that git sees as clean was committed with a finished leveling: start a fresh one
+        committed = APPLIED_LOG not in git_dirty_paths(lib)
+        if committed:
+            journal = []
     if any(j["plan"] != plan_id for j in journal):
         print(f"refusing to apply: {lib / APPLIED_LOG} holds clips leveled by another plan (different "
               f"target, chain or gains). Restore the library first:\n  {restore_command(lib)}", file=sys.stderr)
@@ -344,6 +352,8 @@ def cmd_apply(args) -> int:
             print(f"refusing to apply: {lib} has uncommitted changes (commit or stash them first)",
                   file=sys.stderr)
             return 1
+        if committed:
+            (lib / APPLIED_LOG).write_text("")
     try:
         for vid, keys in todo.items():
             gain = plan["voices"][vid]["gain_db"]
