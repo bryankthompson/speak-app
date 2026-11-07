@@ -227,7 +227,7 @@
   },
   "assignments": {
     "governor": {
-      "profile": "onyx"
+      "profile": "spuds"
     },
     "harness lead": {
       "profile": "echo"
