@@ -282,7 +282,7 @@ def decoded_peak_dbfs(path: Path) -> float:
     """Sample peak of the decoded file (float decode, so overshoot above 0 dBFS is not clipped away)."""
     out = subprocess.run(["ffmpeg", "-v", "info", "-nostats", "-i", str(path), "-af", "astats=measure_perchannel=none",
                           "-f", "null", "-"], capture_output=True, text=True, check=True)
-    peaks = [float(m) for m in re.findall(r"Peak level dB:\s*(-?[\d.]+|-?inf)", out.stderr)]
+    peaks = [float(m) for m in re.findall(r"Peak level dB:\s*(-?[\d.]+|-inf)", out.stderr)]
     if not peaks:
         raise RuntimeError(f"{path}: ffmpeg astats gave no peak level")
     return peaks[-1]
@@ -494,15 +494,24 @@ def cmd_verify(args) -> int:
 def cmd_run(args) -> int:
     """measure -> table -> apply -> verify, stopping at the first step that fails."""
     lib = Path(args.library)
-    if not args.dry_run and git_dirty_paths(lib) - {".manifest.lock"}:
+    out = args.out or str(Path("~/.cache/speak-app/level-plan.json").expanduser())
+    resuming = False
+    if not args.dry_run and (lib / APPLIED_LOG).exists() and Path(out).exists():
+        try:  # a journal written by the plan at `out` means a crashed run: skip measure, apply resumes it
+            resuming = any(j["plan"] == json.loads(Path(out).read_text()).get("plan_hash") for j in read_journal(lib))
+        except (OSError, ValueError, KeyError):
+            resuming = False
+    if not args.dry_run and not resuming and git_dirty_paths(lib) - {".manifest.lock"}:
         print(dirty_message(lib), file=sys.stderr)
         return 1
-    out = args.out or str(Path("~/.cache/speak-app/level-plan.json").expanduser())
     steps = [("measure", lambda: cmd_measure(argparse.Namespace(
                  library=args.library, target=args.target, ratio=CHAIN_DEFAULTS["ratio"],
                  threshold_db=CHAIN_DEFAULTS["threshold_db"], out=out, force_remeasure=False))),
              ("apply --dry-run" if args.dry_run else "apply",
               lambda: cmd_apply(argparse.Namespace(plan=out, library=args.library, dry_run=args.dry_run)))]
+    if resuming:
+        print(f"resuming: journal {lib / APPLIED_LOG} matches plan {out}; skipping measure")
+        steps = steps[1:]
     if not args.dry_run:
         steps.append(("verify", lambda: cmd_verify(argparse.Namespace(library=args.library, target=args.target,
                                                                       sample=0))))
