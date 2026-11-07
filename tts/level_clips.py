@@ -282,6 +282,9 @@ def cmd_verify(args) -> int:
         print("verify measured no clips (empty library or --sample below 1)", file=sys.stderr)
         return 1
     stats = voice_stats(manifest, results)
+    if not stats:
+        print("verify has no voice with a loudness reading, so no spread can be checked", file=sys.stderr)
+        return 1
     for vid, s in sorted(stats.items(), key=lambda kv: kv[1]["median_lufs"]):
         print(f"{vid:<48}{s['clips']:>6}{s['median_lufs']:>10.2f} LUFS")
     medians = [s["median_lufs"] for s in stats.values()]

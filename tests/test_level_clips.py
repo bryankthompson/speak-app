@@ -109,3 +109,9 @@ def test_unmeasurable_file_fails_measure(lib, tmp_path):
     (lib / "openai/quiet/a.mp3").write_bytes(b"not audio")
     res = run("measure", "--library", lib)
     assert res.returncode == 1 and "openai/quiet/a.mp3" in res.stderr
+
+
+def test_verify_fails_when_every_voice_is_skipped(tmp_path):
+    lib = make_library(tmp_path / "lib", [("v", "tiny", 0, 0.2)])  # too short for a loudness reading
+    res = run("verify", "--library", lib)
+    assert res.returncode == 1 and "no voice with a loudness reading" in res.stderr, res.stdout + res.stderr
