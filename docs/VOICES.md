@@ -49,6 +49,8 @@ All of these are read-only and make no API call unless the table says otherwise.
 | `phrases/record.py --provider P --profile ID` | **calls the API.** Records `ID`'s audition set (the id as the name clip, plus the menu). Repeatable | as above |
 | `phrases/record.py --provider P --only ID1,ID2` | limits any run to those profile ids | |
 | `phrases/record.py --provider P --reindex` | re-adds mp3s that are on disk but missing from the manifest; no API call | exit 0 |
+| `phrases/record.py --provider P --lines FILE --dry-run` | lists the free-text lines to record (FILE: one `name: text` per row, blanks and `#` comments skipped), characters and cost; stored lines are skipped; no API call | exit 1 if a name is unknown (reported, skipped) |
+| `phrases/record.py --provider P --lines FILE` | **calls the API.** Records each missing line under the key `speak "name: text"` looks up, so the next speak is free; stops on the first ElevenLabs 401/402/429 | exit 2 on that error, exit 1 if a name was unknown |
 | `python3 phrases/sfx.py --dry-run` / `python3 phrases/sfx.py` | the state sounds, see below; without `--dry-run` it **calls the API** | exit 2 on the first error |
 | `./run_local.sh [--port N] [--open]`, `--status`, `--stop` | the local voice gallery, see below | exit 1: gallery module not found, or nothing on the port |
 
@@ -126,7 +128,7 @@ Only three things ever create audio; everything else plays a stored clip for fre
 |---|---|---|---|
 | `speak "name: clause"` with a menu clause whose clips are stored | no, plays stored clips | free | yes (the library is levelled) |
 | `speak "name: any other text"`, or a menu clause not yet recorded for that voice | yes, the whole line is spoken once by that voice's provider and saved | paid, once per distinct line; free next time | no, not until the next level run |
-| `phrases/record.py` (new voice, new clause) or `phrases/sfx.py` | yes, on purpose | paid; run `--dry-run` first | no, not until the next level run |
+| `phrases/record.py` (new voice, new clause, or `--lines FILE` for free-text lines recorded together ahead of time) or `phrases/sfx.py` | yes, on purpose | paid; run `--dry-run` first | no, not until the next level run |
 
 So prefer menu clauses in cockpit briefs: they are free and already levelled. Free text is fine for a one-off, but each
 new distinct line costs a call and arrives at the provider's own loudness, quieter or louder than the rest.

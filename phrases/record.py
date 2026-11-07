@@ -8,6 +8,7 @@
     record.py --dry-run                 # plan + character/credit/dollar totals, no API call
     record.py --provider openai         # OPENAI_API_KEY must be set (e.g. from 1Password via op)
     record.py --provider elevenlabs     # ELEVENLABS_API_KEY; stops on the first quota/auth error
+    record.py --provider P --lines FILE [--dry-run]   # free-text cockpit lines, one "name: text" per row
 
 Already-stored clips are skipped. An OpenAI error stops the run. On ElevenLabs a 404 (unknown
 voice id) skips that voice; 401/402/429 or any quota text stops the whole run, no retry.
@@ -19,6 +20,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "tts"))
+import phrase_join  # noqa: E402
 import soundbite  # noqa: E402
 
 CFG = json.loads((Path(__file__).parent / "casting.json").read_text())
@@ -51,6 +53,83 @@ def bite_model(provider):
     return f"{CFG['elevenlabs_model']}|s{s['stability']:g}|b{s['similarity_boost']:g}"
 
 
+def price_text(provider, chars):
+    if provider == "openai":
+        return f"${chars * OPENAI_USD_PER_M[CFG['openai_model']] / 1e6:.3f}"
+    return f"{chars} chars = {chars // 2} credits at the measured 0.5/char ({chars} worst case)"
+
+
+def synth(provider, voice, text):
+    """One paid call: (HTTP-ish status, audio bytes or error text). 200 is success; 404 an unknown voice."""
+    if provider == "openai":
+        from openai import OpenAI
+        audio = b"".join(OpenAI().audio.speech.create(
+            model=CFG["openai_model"], voice=voice, input=text, speed=1.0).iter_bytes())
+        return 200, audio
+    import requests
+    r = requests.post(
+        f"https://api.elevenlabs.io/v1/text-to-speech/{voice}",
+        headers={"xi-api-key": os.environ["ELEVENLABS_API_KEY"], "Accept": "audio/mpeg", "Content-Type": "application/json"},
+        json={"text": text, "model_id": CFG["elevenlabs_model"], "voice_settings": CFG["elevenlabs_settings"]},
+        timeout=60)
+    return r.status_code, (r.content if r.status_code == 200 else r.text[:200])
+
+
+def run_lines(path, provider, dry_run, call=synth):
+    """Record free-text cockpit lines ("name: text") under the key the live path looks up: the WHOLE line."""
+    casting = {**CFG, **PROFILES}
+    model = bite_model(provider)
+    stored = soundbite._load()
+
+    def have(text, voice):
+        e = stored.get(soundbite.make_key(text, provider, voice, model, 1.0))
+        return bool(e) and (soundbite.repo_dir() / e["file"]).exists()
+
+    todo, bad, seen = [], 0, set()
+    for raw in Path(path).read_text().splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        prefix, sep, tail = line.partition(": ")
+        entry = phrase_join.resolve_cast(prefix, casting) if sep and tail.strip() else None
+        if not entry:
+            print(f"unknown name, skipped: {line}", file=sys.stderr)
+            bad += 1
+            continue
+        if entry["provider"] != provider:
+            print(f"{entry['profile']} is a {entry['provider']} voice, skipped: {line}", file=sys.stderr)
+            continue
+        clause = phrase_join.match_clause(tail, casting)
+        if have(line, entry["voice"]) or (clause and have(entry["name"], entry["voice"]) and have(clause, entry["voice"])):
+            print(f"stored, skipped: {line}", file=sys.stderr)
+            continue
+        if line not in seen:
+            seen.add(line)
+            todo.append((entry, line))
+    chars = sum(len(t) for _, t in todo)
+    for _, t in todo:
+        print(f"  {len(t):4d} chars  {t}", file=sys.stderr)
+    print(f"{provider}: {len(todo)} lines to record, {chars} chars, {price_text(provider, chars)} (model {model})", file=sys.stderr)
+    if dry_run:
+        return 1 if bad else 0
+    done = 0
+    for entry, t in todo:
+        status, body = call(provider, entry["voice"], t)
+        if status == 404:
+            print(f"voice not found, skipped {t}: {body}", file=sys.stderr)
+            bad += 1
+            continue
+        if status != 200:
+            print(f"STOP on first error: HTTP {status} {body}\nrecorded {done} before stopping", file=sys.stderr)
+            return 2
+        if soundbite.save(t, provider, entry["voice"], body, model, 1.0) is None:
+            print(f"STOP: could not store the clip for {t}\nrecorded {done} before stopping", file=sys.stderr)
+            return 2
+        done += 1
+    print(f"recorded {done} lines", file=sys.stderr)
+    return 1 if bad else 0
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--provider", choices=["openai", "elevenlabs"], required=True)
@@ -58,12 +137,15 @@ def main():
     ap.add_argument("--reindex", action="store_true", help="re-add clips that are on disk but missing from the manifest; no API calls")
     ap.add_argument("--only", help="comma-separated profile ids to limit the run to")
     ap.add_argument("--assigned", action="store_true", help="record every assigned cockpit's name + menu (the default)")
+    ap.add_argument("--lines", metavar="FILE", help="record free-text lines, one 'name: text' per row (# comments and blanks skipped)")
     ap.add_argument("--dry-run", action="store_true")
     a = ap.parse_args()
     unknown = [p for p in (a.profile or []) if p not in PROFILES["profiles"]]
     if unknown:
         print(f"unknown profile id(s): {', '.join(unknown)} (see phrases/profiles.json)", file=sys.stderr)
         return 2
+    if a.lines:
+        return run_lines(a.lines, a.provider, a.dry_run)
     model = bite_model(a.provider)
     if a.reindex:
         n = sum(soundbite.adopt(t, a.provider, c["voice"], model, 1.0)
@@ -78,7 +160,7 @@ def main():
 
     todo = [(c, t) for c, t in jobs(a.provider, a.profile, a.only.split(',') if a.only else None) if not have(c, t)]
     chars = sum(len(t) for _, t in todo)
-    price = f"${chars * OPENAI_USD_PER_M[CFG['openai_model']] / 1e6:.3f}" if a.provider == "openai" else f"{chars} chars = {chars // 2} credits at the measured 0.5/char ({chars} worst case)"
+    price = price_text(a.provider, chars)
     print(f"{a.provider}: {len(todo)} clips to record, {chars} chars, {price} (model {model})", file=sys.stderr)
     if a.dry_run:
         return 0
