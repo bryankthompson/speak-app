@@ -1,0 +1,16 @@
+# lyrika: lead of the Studio (video creation). Gates first, then attention-only.
+lyrika: spend needs your approval
+lyrika: video generation waiting for your go
+lyrika: cost estimate ready to approve
+lyrika: cost is over your budget
+lyrika: still take waiting for approval
+lyrika: video preview waiting for approval
+lyrika: rollout needs your yes
+lyrika: restart will lose unsaved work
+lyrika: save or download needs your go
+lyrika: clips are ready to review
+lyrika: desk finished, report is waiting
+lyrika: desk is blocked, needs a decision
+lyrika: desk has a question for you
+lyrika: provider timed out, check the desk
+lyrika: render finished in Resolve
