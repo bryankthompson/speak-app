@@ -5,6 +5,7 @@
     python3 tts/level_clips.py apply PLAN [--library DIR] [--dry-run]
     python3 tts/level_clips.py verify [--library DIR] [--target -18] [--sample N]
     python3 tts/level_clips.py fix-peaks [--library DIR] [--dry-run]
+    python3 tts/level_clips.py add-voice VOICE_ID... [--library DIR] [--plan PLAN]
     python3 tts/level_clips.py run [--library DIR] [--target -18] [--out PLAN] [--dry-run]
 
 measure is read-only. apply re-encodes clips in place (same path, same manifest key) and
@@ -56,6 +57,7 @@ DURATION_TOLERANCE_S = 0.05
 STALE_TEMPDIR_S = 3600
 TEMPDIR_PREFIX = "level-"
 APPLIED_LOG = "levels-applied.jsonl"
+PLAN_NAME = "level-plan.json"  # the plan save-time leveling reads: $SOUNDBITE_PLAN, else <library>/level-plan.json
 AOC_SRC = Path("~/audio-observation-core/src").expanduser()
 DEPS = ("numpy", "scipy", "soxr", "soundfile")
 
@@ -88,6 +90,11 @@ def plan_hash(plan: dict) -> str:
     return hashlib.sha256(json.dumps(body, sort_keys=True).encode()).hexdigest()[:16]
 
 
+def plan_ids(plan: dict) -> set:
+    """Journal 'plan' values that belong to this plan: its own hash and the hashes it had before voices were added."""
+    return {plan_hash(plan), *plan.get("previous_hashes", [])}
+
+
 def compute_gain(target: float, median_lufs: float) -> float:
     """Move the voice median to target. Peaks are held by the limiter in reencode, not by this gain."""
     return round(target - median_lufs, 2)
@@ -113,10 +120,14 @@ def manifest_locked(lib: Path):
 
 def write_json_atomic(path: Path, data: dict) -> None:
     fd, tmp = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
-    with os.fdopen(fd, "w") as f:
-        json.dump(data, f, indent=2, sort_keys=True)
-        f.write("\n")
-    os.replace(tmp, path)
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(data, f, indent=2, sort_keys=True)
+            f.write("\n")
+        os.replace(tmp, path)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
 
 
 def probe(path: Path, entries: str) -> dict:
@@ -231,6 +242,18 @@ def format_table(voices: dict) -> str:
     return "\n".join(lines)
 
 
+def plan_voices(stats: dict, target: float) -> dict:
+    """Plan entry per voice (gain, limiter estimate, flags) from voice_stats."""
+    voices = {}
+    for vid, s in stats.items():
+        gain = compute_gain(target, s["median_lufs"])
+        limited, reduction = limiting_estimate(s.pop("peaks"), gain)
+        flagged = limited / s["clips"] > FLAG_LIMITED_FRACTION or reduction > FLAG_REDUCTION_DB
+        voices[vid] = {**s, "gain_db": gain, "limited_clips": limited, "max_reduction_db": reduction,
+                       "flagged": flagged}
+    return voices
+
+
 def cmd_measure(args) -> int:
     lib = Path(args.library)
     done = [j for j in read_journal(lib) if j.get("state", "done") == "done"]
@@ -250,13 +273,7 @@ def cmd_measure(args) -> int:
     began = time.time()
     results, failures = measure_all(lib, manifest, prefilter=chain_prefilter(chain))
     stats = voice_stats(manifest, results)
-    voices = {}
-    for vid, s in stats.items():
-        gain = compute_gain(args.target, s["median_lufs"])
-        limited, reduction = limiting_estimate(s.pop("peaks"), gain)
-        flagged = limited / s["clips"] > FLAG_LIMITED_FRACTION or reduction > FLAG_REDUCTION_DB
-        voices[vid] = {**s, "gain_db": gain, "limited_clips": limited, "max_reduction_db": reduction,
-                       "flagged": flagged}
+    voices = plan_voices(stats, args.target)
     medians = [v["median_lufs"] for v in voices.values()]
     spread = round(max(medians) - min(medians), 2) if medians else 0.0
     table = format_table(voices)
@@ -325,7 +342,7 @@ def reencode(src: Path, gain_db: float, chain: dict, extra_atten_db: float = 0.0
 def encode_filtered(src: Path, audio_filter: str) -> Path:
     """src through an ffmpeg -af string into a temp mp3 next to it, same bitrate, checked to decode and keep its duration."""
     bitrate = probe(src, "bit_rate,duration")
-    tmp = src.with_name(f".level-{src.name}")
+    tmp = src.with_name(f".level-{os.getpid()}-{src.name}")
     try:
         subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(src), "-af", audio_filter,
                         "-c:a", "libmp3lame", "-b:a", str(bitrate["bit_rate"]), "-f", "mp3", str(tmp)],
@@ -365,10 +382,10 @@ def journal_append(lib: Path, entry: dict) -> None:
         os.fsync(f.fileno())
 
 
-def sync_manifest(lib: Path, plan_id: str) -> None:
+def sync_manifest(lib: Path, ids: set) -> None:
     """Set manifest bytes from the journal (the record of what was replaced), under the soundbite lock."""
     sizes = {j["key"]: j["bytes"] for j in read_journal(lib)
-             if j["plan"] == plan_id and j.get("state", "done") == "done"}
+             if j["plan"] in ids and j.get("state", "done") == "done"}
     with manifest_locked(lib):
         fresh = load_manifest(lib)
         changed = False
@@ -387,8 +404,12 @@ def file_sha256(path: Path) -> str:
 def recover_pending(lib: Path, plan_id: str, journal: list) -> list:
     """Write-ahead recovery: a pending line with no done line means the run died around os.replace.
     If the file no longer matches old_sha256 the replace happened, so record done (never re-level it)."""
-    done = {j["key"] for j in journal if j.get("state", "done") == "done"}
-    latest = {j["key"]: j for j in journal if j.get("state") == "pending" and j["key"] not in done}
+    latest = {}  # a key's open pending line: one with no done line after it (a re-leveled key has an older done)
+    for j in journal:
+        if j.get("state") == "pending":
+            latest[j["key"]] = j
+        elif j.get("state", "done") == "done":
+            latest.pop(j["key"], None)
     for key, pend in latest.items():
         path = lib / pend["file"]
         if file_sha256(path) != pend["old_sha256"]:
@@ -418,22 +439,24 @@ def cmd_apply(args) -> int:
         print(f"refusing to apply: plan hash {plan.get('plan_hash')} does not match its content "
               f"({plan_id}); the plan was edited", file=sys.stderr)
         return 1
-    chain, journal = plan["chain"], read_journal(lib)
+    chain, journal, ids = plan["chain"], read_journal(lib), plan_ids(plan)
     committed = False
-    if any(j["plan"] != plan_id for j in journal) and not args.dry_run:
+    if any(j["plan"] not in ids for j in journal) and not args.dry_run:
         for stale in lib.rglob(".level-*"):  # re-encode temp files left by a killed run
             stale.unlink()
         # a journal that git sees as clean was committed with a finished leveling: start a fresh one
         committed = APPLIED_LOG not in git_dirty_paths(lib)
         if committed:
             journal = []
-    if any(j["plan"] != plan_id for j in journal):
+    if any(j["plan"] not in ids for j in journal):
         print(f"refusing to apply: {lib / APPLIED_LOG} holds clips leveled by another plan (different "
               f"target, chain or gains). Restore the library first:\n  {restore_command(lib)}", file=sys.stderr)
         return 1
     if journal and not args.dry_run:
         journal = recover_pending(lib, plan_id, journal)
-    done = {j["key"] for j in journal if j.get("state", "done") == "done"}
+    done = set()
+    for j in journal:  # the latest line per key wins: an open pending line re-opens a key
+        (done.add if j.get("state", "done") == "done" else done.discard)(j["key"])
     manifest = load_manifest(lib)
     todo = {}
     for vid, v in sorted(plan["voices"].items()):
@@ -469,14 +492,127 @@ def cmd_apply(args) -> int:
                 journal_append(lib, {"state": "done", "key": key, "file": manifest[key]["file"],
                                      "plan": plan_id, "gain_db": gain, "bytes": path.stat().st_size,
                                      "extra_atten_db": extra, "peak_dbtp": round(peak, 2)})
-            sync_manifest(lib, plan_id)
+            sync_manifest(lib, ids)
     except BaseException:
         print("apply stopped part-way: rerun the same command to resume where it left off", file=sys.stderr)
         raise
     finally:
         if not args.dry_run:
-            sync_manifest(lib, plan_id)
+            sync_manifest(lib, ids)
     return 0
+
+
+def cmd_add_voice(args) -> int:
+    """Measure only the named voices (never leveled) and add their gains to the plan; apply the new plan afterwards."""
+    lib = Path(args.library)
+    plan_path = Path(args.plan) if args.plan else default_plan_path(lib)
+    try:
+        plan = json.loads(plan_path.read_text())
+        old_hash = plan_hash(plan)
+        plan["voices"], plan["chain"], plan["target"]
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        print(f"refusing to add: cannot read plan {plan_path}: {type(exc).__name__}: {exc}", file=sys.stderr)
+        return 1
+    if plan.get("plan_hash") != old_hash:
+        print(f"refusing to add: plan hash {plan.get('plan_hash')} does not match its content ({old_hash}); "
+              f"the plan was edited", file=sys.stderr)
+        return 1
+    manifest = load_manifest(lib)
+    leveled = {voice_id(manifest[j["key"]]) for j in read_journal(lib) if j["key"] in manifest}  # done or pending
+    for vid in args.voices:
+        if vid in plan["voices"] or vid in leveled:
+            print(f"refusing to add {vid}: it is already in the plan or has clips in the journal "
+                  f"(measuring leveled clips would plan a gain near 0)", file=sys.stderr)
+            return 1
+    keys = {k for k, e in manifest.items() if e["provider"] != "sfx" and voice_id(e) in args.voices}
+    missing = set(args.voices) - {voice_id(manifest[k]) for k in keys}
+    if missing:
+        print(f"refusing to add: no clips in the library for {', '.join(sorted(missing))}", file=sys.stderr)
+        return 1
+    results, failures = measure_all(lib, manifest, keys, prefilter=chain_prefilter(plan["chain"]))
+    voices = plan_voices(voice_stats(manifest, results), plan["target"])
+    if report_failures(failures) or set(voices) != set(args.voices):
+        print("not adding: some clips or voices could not be measured; the plan is unchanged", file=sys.stderr)
+        return 1
+    print(format_table(voices))
+    plan["voices"].update(voices)
+    plan["previous_hashes"] = [*plan.get("previous_hashes", []), old_hash]
+    plan["plan_hash"] = plan_hash(plan)
+    write_json_atomic(plan_path, plan)
+    print(f"added {len(voices)} voice(s) to {plan_path} (plan {old_hash} -> {plan['plan_hash']}); "
+          f"commit the library, then: python3 {Path(__file__).name} apply {plan_path}")
+    return 0
+
+
+def default_plan_path(lib: Path) -> Path:
+    return Path(os.getenv("SOUNDBITE_PLAN") or lib / PLAN_NAME).expanduser()
+
+
+def has_done_line(lib: Path, key: str) -> bool:
+    return (lib / APPLIED_LOG).exists() and any(
+        j["key"] == key and j.get("state", "done") == "done" for j in read_journal(lib))
+
+
+def reopen_key(lib: Path, key: str) -> None:
+    """Open pending line for a re-recorded key whose old done line is stale, so the next apply levels it.
+    old_sha256 is the current file, so recover_pending sees no replace and leaves it open."""
+    last = [j for j in read_journal(lib) if j["key"] == key][-1]
+    path = lib / last["file"]
+    journal_append(lib, {"state": "pending", "key": key, "file": last["file"], "plan": last["plan"],
+                         "gain_db": last.get("gain_db", 0), "old_sha256": file_sha256(path)})
+
+
+def level_saved(lib: Path, key: str) -> bool:
+    """Level one clip soundbite.save just stored, like apply would (same chain, peak guard and journal lines).
+
+    Fails open: any error keeps the unleveled clip, prints one line to stderr and returns False. Never raises."""
+    stale = False
+    try:
+        stale = has_done_line(lib, key)  # a re-recorded key: its old leveled copy is gone
+        if _level_saved(lib, key):
+            return True
+        if stale:
+            reopen_key(lib, key)
+        reason = "no plan, or no gain for its voice"  # normal for an unleveled library: quiet unless stale
+        if not stale:
+            return False
+    except (Exception, SystemExit) as exc:
+        reason = f"{type(exc).__name__}: {exc}"
+        if stale:
+            try:
+                reopen_key(lib, key)
+            except Exception:
+                pass
+    print(f"soundbite level: {key} left unleveled ({reason})"
+          + ("; stale-unleveled: its journal says leveled but the file was replaced" if stale else ""),
+          file=sys.stderr)
+    return False
+
+
+def _level_saved(lib: Path, key: str) -> bool:
+    plan_path = default_plan_path(lib)
+    if not plan_path.exists():
+        return False
+    plan = json.loads(plan_path.read_text())
+    plan_id = plan_hash(plan)
+    if plan.get("plan_hash") != plan_id:
+        raise RuntimeError(f"plan {plan_path} was edited (hash mismatch)")
+    entry = load_manifest(lib)[key]
+    voice = plan["voices"].get(voice_id(entry))
+    if entry["provider"] == "sfx" or not voice or abs(voice["gain_db"]) < MIN_GAIN_DB:
+        return False
+    gain, path = voice["gain_db"], lib / entry["file"]
+    tmp, extra, peak = reencode_guarded(path, gain, plan["chain"])
+    try:
+        journal_append(lib, {"state": "pending", "key": key, "file": entry["file"], "plan": plan_id,
+                             "gain_db": gain, "old_sha256": file_sha256(path)})
+        os.replace(tmp, path)
+    finally:
+        tmp.unlink(missing_ok=True)
+    journal_append(lib, {"state": "done", "key": key, "file": entry["file"], "plan": plan_id, "gain_db": gain,
+                         "bytes": path.stat().st_size, "extra_atten_db": extra, "peak_dbtp": round(peak, 2)})
+    sync_manifest(lib, plan_ids(plan))
+    return True
 
 
 def cmd_verify(args) -> int:
@@ -598,7 +734,7 @@ def cmd_run(args) -> int:
     resuming = False
     if not args.dry_run and (lib / APPLIED_LOG).exists() and Path(out).exists():
         try:  # a journal written by the plan at `out` means a crashed run: skip measure, apply resumes it
-            resuming = any(j["plan"] == json.loads(Path(out).read_text()).get("plan_hash") for j in read_journal(lib))
+            resuming = any(j["plan"] in plan_ids(json.loads(Path(out).read_text())) for j in read_journal(lib))
         except (OSError, ValueError, KeyError):
             resuming = False
     if not args.dry_run and not resuming and git_dirty_paths(lib) - {".manifest.lock"}:
@@ -635,13 +771,16 @@ def main(argv=None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     sub = p.add_subparsers(dest="cmd", required=True)
-    for name in ("measure", "apply", "verify", "run", "fix-peaks"):
+    for name in ("measure", "apply", "verify", "run", "fix-peaks", "add-voice"):
         s = sub.add_parser(name)
+        if name == "add-voice":
+            s.add_argument("voices", nargs="+", metavar="VOICE_ID", help="provider/voice, e.g. openai/onyx")
+            s.add_argument("--plan", help=f"plan to extend (default $SOUNDBITE_PLAN, else <library>/{PLAN_NAME})")
         if name in ("apply", "run", "fix-peaks"):
             if name == "apply":
                 s.add_argument("plan")
             s.add_argument("--dry-run", action="store_true")
-        if name not in ("apply", "fix-peaks"):
+        if name not in ("apply", "fix-peaks", "add-voice"):
             s.add_argument("--target", type=float, default=DEFAULT_TARGET)
         if name == "measure":
             s.add_argument("--ratio", type=float, default=CHAIN_DEFAULTS["ratio"])
@@ -657,7 +796,8 @@ def main(argv=None) -> int:
     args = p.parse_args(argv)
     if args.cmd != "apply":
         ensure_deps(argv)
-    return {"measure": cmd_measure, "apply": cmd_apply, "verify": cmd_verify, "run": cmd_run, "fix-peaks": cmd_fix_peaks}[args.cmd](args)
+    return {"measure": cmd_measure, "apply": cmd_apply, "verify": cmd_verify, "run": cmd_run, "fix-peaks": cmd_fix_peaks,
+            "add-voice": cmd_add_voice}[args.cmd](args)
 
 
 if __name__ == "__main__":

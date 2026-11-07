@@ -127,15 +127,16 @@ Only three things ever create audio; everything else plays a stored clip for fre
 | What you do | New audio? | Cost | Levelled? |
 |---|---|---|---|
 | `speak "name: clause"` with a menu clause whose clips are stored | no, plays stored clips | free | yes (the library is levelled) |
-| `speak "name: any other text"`, or a menu clause not yet recorded for that voice | yes, the whole line is spoken once by that voice's provider and saved | paid, once per distinct line; free next time | no, not until the next level run |
-| `phrases/record.py` (new voice, new clause, or `--lines FILE` for free-text lines recorded together ahead of time) or `phrases/sfx.py` | yes, on purpose | paid; run `--dry-run` first | no, not until the next level run |
+| `speak "name: any other text"`, or a menu clause not yet recorded for that voice | yes, the whole line is spoken once by that voice's provider and saved | paid, once per distinct line; free next time | yes at save time, if the library has its level plan and a gain for the voice; otherwise at the next level run |
+| `phrases/record.py` (new voice, new clause, or `--lines FILE` for free-text lines recorded together ahead of time) or `phrases/sfx.py` | yes, on purpose | paid; run `--dry-run` first | voice clips: as above; sfx: never |
 
 So prefer menu clauses in cockpit briefs: they are free and already levelled. Free text is fine for a one-off, but each
 new distinct line costs a call and arrives at the provider's own loudness, quieter or louder than the rest.
 
-After recording new clips (or after free-text lines have piled up), level them: commit the library, then rerun
-`tts/level_clips.py apply` with the saved plan (`docs/LEVELING.md`, "Leveling new clips"). A brand-new voice cannot
-be levelled that way yet.
+Clips of a voice already in the plan are levelled as they are saved (about half a second, nothing printed). If the
+library has no plan, or the voice has no gain in it, or leveling failed (one stderr line says so), commit the library
+and rerun `tts/level_clips.py apply` with the saved plan (`docs/LEVELING.md`, "Leveling new clips"). A brand-new
+voice gets its gain with `tts/level_clips.py add-voice provider/voice`.
 
 ## Sound effects
 

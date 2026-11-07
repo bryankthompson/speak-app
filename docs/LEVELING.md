@@ -58,6 +58,7 @@ python3 tts/level_clips.py apply PLAN [--library DIR] [--dry-run]
 python3 tts/level_clips.py verify [--library DIR] [--target -18] [--sample N]
 python3 tts/level_clips.py run [--library DIR] [--target -18] [--out PLAN] [--dry-run]
 python3 tts/level_clips.py fix-peaks [--library DIR] [--dry-run]
+python3 tts/level_clips.py add-voice VOICE_ID... [--library DIR] [--plan PLAN]
 ```
 
 - `measure`: read-only. Renders each clip through highpass and compressor, reads the loudness, prints the table
@@ -73,6 +74,11 @@ python3 tts/level_clips.py fix-peaks [--library DIR] [--dry-run]
   Without `--out` the plan goes to `~/.cache/speak-app/level-plan.json`. It refuses a dirty library tree before
   doing anything. `--dry-run` is measure plus `apply --dry-run` (no tree check, nothing written but the plan).
 
+- `add-voice VOICE_ID...` (for example `openai/onyx`): measures only the named voices with the plan's chain and
+  target and adds their gains to the plan (default `$SOUNDBITE_PLAN`, else `<library>/level-plan.json`). It refuses a
+  voice already in the plan, one with `done` lines in the journal, or one with no clips, and leaves the plan
+  unchanged if any clip cannot be measured. It does not touch the audio: commit the library, then run `apply` with the
+  updated plan.
 - `fix-peaks`: measures the true peak of every non-sfx clip (the same number `verify` uses) and cuts each clip over
   -0.5 dBTP in place, from its current leveled audio, with a plain volume cut to about -1.0 dBTP (up to 3 tries,
   checked on the decoded file). Same temp file, decode check and `os.replace` as `apply`; updates manifest `bytes`.
@@ -87,7 +93,10 @@ python3 tts/level_clips.py fix-peaks [--library DIR] [--dry-run]
   replace, a `done` line (bytes, `extra_atten_db`, `peak_dbfs`) after. A crashed run resumes by rerunning the same
   command: a clip whose file already changed is marked done and never leveled twice; one that did not is redone.
 - **Plan hash**: the plan carries a hash of target, chain and gains. `apply` refuses an edited plan, and a library
-  whose journal belongs to another plan (it prints the restore command).
+  whose journal belongs to another plan (it prints the restore command). `add-voice` changes the gains, so it
+  records the hash it replaced in `previous_hashes`; journal lines written under any hash in that list still belong
+  to the plan, so the voices leveled before stay leveled. Plans without `previous_hashes` (everything measured
+  before `add-voice`) work as before.
 - **Restore**: when `apply` refuses for another plan it prints the exact command: `git checkout` of every journaled
   file and of `manifest.json` from the snapshot commit, then removal of the journal.
 - **Post-encode peak guard**: after encoding to a temp file and before the replace, `apply` decodes it and measures
@@ -116,11 +125,24 @@ tts/level_clips.py builds the string.
 
 ## Leveling new clips
 
-- **New clips of an already-leveled voice**: commit the library (new files, manifest and journal), then rerun
-  `apply` with the same plan file. It levels only the clips not in the journal, with that voice's gain, and leaves
-  the leveled ones alone. Tested in tests/test_level_clips.py.
-- **A new voice is not supported yet**: the plan has no gain for it, and `measure` refuses a leveled library, so
-  there is no way to add one short of restoring the originals and re-running everything.
+- **Clips saved while the plan is in place are leveled when they are saved.** `soundbite.save` calls
+  `level_clips.level_saved` after storing a clip. It finds the plan at `$SOUNDBITE_PLAN`, else
+  `<library>/level-plan.json` (copy the plan there once, and commit it with the library). If the plan has a gain for
+  the clip's voice (and sfx is skipped), the clip goes through the same chain and peak guard as `apply`, with the same
+  `pending` and `done` journal lines and the manifest `bytes` update. A later `apply` with that plan sees the `done`
+  line and does not encode the clip again. Measured: save plus leveling of a 3 s clip takes about 0.45 s (ffmpeg
+  encode, decode check and true-peak read). level_clips is imported only then, and `ffmpeg` and
+  `~/audio-observation-core` are not needed for it (measuring is not part of it).
+- **It fails open.** No plan file means nothing happens and nothing is printed. Any other problem (no ffmpeg, an
+  edited or unreadable plan, the peak guard giving up) keeps the unleveled clip, prints one line to stderr and
+  never raises or blocks speaking. Such a clip is leveled by the next `apply` as before: commit the library, then
+  rerun `apply` with the same plan file. It levels only the clips not in the journal.
+- **Clean tree**: clips leveled at save time are in the journal, so `apply` counts them as its own changes and does
+  not refuse for them. Any other uncommitted file (a clip whose leveling failed, for instance) still needs the commit.
+- **A new voice**: `add-voice` (see Commands) measures the voice's clips and adds its gain to the plan, without
+  disturbing the journal of the other voices. Order: record the voice's clips, commit the library, `add-voice`,
+  copy the updated plan to `<library>/level-plan.json`, commit, `apply`. From then on its new clips are leveled at
+  save time. Between the first save and `add-voice` the voice has no gain, so its clips arrive unleveled.
 
 ## Known limits
 
@@ -130,4 +152,11 @@ tts/level_clips.py builds the string.
   0.5 dB above `verify`'s (levels_block skips the file edges), so such a clip may be cut a little more than needed.
 - CI runs tests/test_soundbite.py, test_library_web.py and test_voices_docs.py. tests/test_level_clips.py needs ffmpeg and ~/audio-observation-core, which the runner lacks, so it is run locally.
 - A torn last journal line after a power loss is ignored with a warning, not truncated.
-- The first play of a freshly recorded clip is not leveled; it is leveled by the next `apply`.
+- A freshly recorded clip is leveled at save time only when the plan is found and has a gain for its voice. Otherwise
+  its first play is at the provider's loudness until the next `apply`.
+- **Stale-unleveled clip**: re-recording a text that already has a clip replaces the file under the same key. If
+  save-time leveling then cannot run or fails, the journal still holds the old `done` line for that key, so `apply`
+  skips it and the new file stays unleveled. `save` prints one stderr line saying so ("stale-unleveled"). To level it,
+  restore the journal (or delete that key's lines in `levels-applied.jsonl`) and rerun `apply`.
+- Save-time leveling and `apply` do not lock each other. A save during a running `apply` only appends to the journal
+  and rewrites the manifest under the soundbite lock; the pending line's sha check keeps a clip from being leveled twice.

@@ -136,10 +136,21 @@ def save(text: str, provider: str, voice: str, audio: bytes, model: str = "", sp
             }
             _write(manifest)
         print(f"soundbite saved: {rel}", file=sys.stderr)
+        _level(key)
         return path
     except Exception as e:
         print(f"soundbite save failed: {e}", file=sys.stderr)
         return None
+
+
+def _level(key: str) -> None:
+    """Level the clip just saved if the library has a level plan (docs/LEVELING.md). Lazy import so the
+    other callers never load it; level_saved fails open, and so does a missing module."""
+    try:
+        import level_clips
+        level_clips.level_saved(repo_dir(), key)
+    except Exception as e:
+        print(f"soundbite level skipped: {e}", file=sys.stderr)
 
 
 def import_cache(cache_dir: str = "~/.cache/speak-app", model: str = "tts-1") -> int:

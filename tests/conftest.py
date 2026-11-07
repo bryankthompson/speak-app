@@ -477,3 +477,10 @@ def _isolated_speech_gate(tmp_path, monkeypatch):
     """Tests never read the real repo registry or write the real speech log."""
     monkeypatch.setenv("SPEAK_REPOS", str(tmp_path / "gate" / "repos.json"))
     monkeypatch.setenv("SPEAK_LOG", str(tmp_path / "gate" / "speech.log"))
+
+
+@pytest.fixture(autouse=True)
+def _isolated_soundbite(tmp_path, monkeypatch):
+    """No test can save, level or journal in the real ~/soundbite; tests that need a library set their own."""
+    monkeypatch.setenv("SOUNDBITE_DIR", str(tmp_path / "soundbite-default"))
+    monkeypatch.setenv("SOUNDBITE_PLAN", str(tmp_path / "soundbite-default" / "level-plan.json"))
