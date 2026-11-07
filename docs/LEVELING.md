@@ -31,7 +31,7 @@ One ffmpeg re-encode per clip, settings in `CHAIN_DEFAULTS` (tts/level_clips.py)
 | acompressor | threshold -24 dB, ratio 2.5:1, attack 8 ms, release 120 ms, makeup 1 | Gentle: it lifts the quiet parts and brings out the low-level frequencies without pumping. 8 ms attack lets the first consonant through. |
 | volume | gain per voice | Moves the voice median to the target. |
 | alimiter | -1 dBFS (0.891), attack 5 ms, release 50 ms | Catches what the gain pushes over. |
-| peak guard | decoded peak <= -0.8 dBFS | libmp3lame re-encoding overshoots the limiter ceiling; see the safety model. |
+| peak guard | decoded true peak <= -0.8 dBTP | libmp3lame re-encoding overshoots the limiter ceiling, and the wave between samples overshoots the samples; see the safety model. |
 
 - **Gain per voice, not per clip**: clips of one voice keep their natural differences (a shout stays louder than a
   whisper); only the voices are brought together. Per-clip gain would flatten every line to the same level.
@@ -57,6 +57,7 @@ python3 tts/level_clips.py measure [--library DIR] [--target -18] [--out PLAN] [
 python3 tts/level_clips.py apply PLAN [--library DIR] [--dry-run]
 python3 tts/level_clips.py verify [--library DIR] [--target -18] [--sample N]
 python3 tts/level_clips.py run [--library DIR] [--target -18] [--out PLAN] [--dry-run]
+python3 tts/level_clips.py fix-peaks [--library DIR] [--dry-run]
 ```
 
 - `measure`: read-only. Renders each clip through highpass and compressor, reads the loudness, prints the table
@@ -72,6 +73,12 @@ python3 tts/level_clips.py run [--library DIR] [--target -18] [--out PLAN] [--dr
   Without `--out` the plan goes to `~/.cache/speak-app/level-plan.json`. It refuses a dirty library tree before
   doing anything. `--dry-run` is measure plus `apply --dry-run` (no tree check, nothing written but the plan).
 
+- `fix-peaks`: measures the true peak of every non-sfx clip (the same number `verify` uses) and cuts each clip over
+  -0.5 dBTP in place, from its current leveled audio, with a plain volume cut to about -1.0 dBTP (up to 3 tries,
+  checked on the decoded file). Same temp file, decode check and `os.replace` as `apply`; updates manifest `bytes`.
+  Exits 1 and names any clip still over. A second run finds nothing over and changes nothing. `--dry-run` lists
+  the clips it would cut. It refuses a dirty library tree like `apply`.
+
 ## Safety model
 
 - **Clean tree and a snapshot**: `apply` refuses if the library git tree has uncommitted changes. Commit the library
@@ -84,10 +91,15 @@ python3 tts/level_clips.py run [--library DIR] [--target -18] [--out PLAN] [--dr
 - **Restore**: when `apply` refuses for another plan it prints the exact command: `git checkout` of every journaled
   file and of `manifest.json` from the snapshot commit, then removal of the journal.
 - **Post-encode peak guard**: after encoding to a temp file and before the replace, `apply` decodes it and measures
-  the sample peak. Above `PEAK_GUARD_DBFS` (-0.8) it re-encodes from the original with extra attenuation after the
-  limiter (overshoot + 0.3 dB), up to 3 more tries; if still over it stops non-zero and names the clip. The
-  attenuation used is `extra_atten_db` in the journal. Without it, 9 of 5,587 clips came out above the verify limit
-  (worst +1.3 dBFS, clipping).
+  the TRUE peak (ffmpeg `ebur128=peak=true`, 4x oversampled, the quantity `verify` uses). Above `PEAK_GUARD_DBTP`
+  (-0.8) it re-encodes from the original with extra attenuation after the limiter (overshoot + 0.3 dB), up to 3
+  more tries; if still over it stops non-zero and names the clip. The attenuation used is `extra_atten_db` and the
+  result `peak_dbtp` in the journal. Without it, 9 of 5,587 clips came out above the verify limit (worst +1.3
+  dBFS, clipping). The first version of the guard read the sample peak and still left 7 clips over, because a
+  short limited clip can overshoot between samples by up to about 1.1 dB.
+- **fix-peaks journal**: `peakfix_pending` (with `old_sha256`) before each replace, `peakfix` (`peak_before`,
+  `peak_after`, `atten_db`) after, in the same `levels-applied.jsonl`. `apply` and `measure` ignore these lines.
+  A crashed run resumes by rerunning: a clip whose file already changed is recorded, not cut twice.
 
 ## Hear a before/after
 
@@ -112,6 +124,10 @@ tts/level_clips.py builds the string.
 
 ## Known limits
 
+- `fix-peaks` costs one extra mp3 generation on the few clips it touches (they were encoded by `apply`, then
+  decoded and encoded again). It exists for clips the guard cannot catch, such as a library leveled before the
+  guard read the true peak. Its own check reads ffmpeg's true peak, which on a pure tone at fs/4 reads up to
+  0.5 dB above `verify`'s (levels_block skips the file edges), so such a clip may be cut a little more than needed.
 - CI runs only tests/test_soundbite.py; tests/test_level_clips.py is run locally.
 - A torn last journal line after a power loss is ignored with a warning, not truncated.
 - The first play of a freshly recorded clip is not leveled; it is leveled by the next `apply`.
