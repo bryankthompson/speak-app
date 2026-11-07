@@ -250,11 +250,16 @@ def cmd_apply(args) -> int:
         if args.dry_run:
             continue
         sizes = {}
-        for key in keys:
-            path = lib / manifest[key]["file"]
-            tmp = reencode(path, v["gain_db"])
-            os.replace(tmp, path)
-            sizes[key] = path.stat().st_size
+        try:
+            for key in keys:
+                path = lib / manifest[key]["file"]
+                tmp = reencode(path, v["gain_db"])
+                os.replace(tmp, path)
+                sizes[key] = path.stat().st_size
+        except BaseException:
+            print(f"apply failed part-way through {vid}: restore the library with "
+                  f"`git -C {lib} checkout -- .` before rerunning", file=sys.stderr)
+            raise
         with manifest_locked(lib):
             fresh = load_manifest(lib)
             for key, size in sizes.items():
