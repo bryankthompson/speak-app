@@ -632,3 +632,16 @@ def test_save_time_leveling_through_soundbite_save_stays_fast(tmp_path, monkeypa
     took = time.time() - start
     print(f"save + level of a 3 s clip: {took:.2f}s")
     assert path.read_bytes() != raw and took < 2.0
+
+
+def test_add_voice_missing_plan_refuses_without_raising(tmp_path, capsys):
+    import argparse
+    args = argparse.Namespace(library=str(tmp_path), plan=str(tmp_path / "nope.json"), voices=["x"])
+    assert level_clips.cmd_add_voice(args) == 1
+    assert "refusing to add" in capsys.readouterr().err
+
+
+def test_write_json_atomic_leaves_no_temp_on_failure(tmp_path):
+    with pytest.raises(TypeError):
+        level_clips.write_json_atomic(tmp_path / "p.json", {"x": object()})
+    assert list(tmp_path.iterdir()) == []

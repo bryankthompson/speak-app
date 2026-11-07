@@ -120,10 +120,14 @@ def manifest_locked(lib: Path):
 
 def write_json_atomic(path: Path, data: dict) -> None:
     fd, tmp = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
-    with os.fdopen(fd, "w") as f:
-        json.dump(data, f, indent=2, sort_keys=True)
-        f.write("\n")
-    os.replace(tmp, path)
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(data, f, indent=2, sort_keys=True)
+            f.write("\n")
+        os.replace(tmp, path)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
 
 
 def probe(path: Path, entries: str) -> dict:
@@ -338,7 +342,7 @@ def reencode(src: Path, gain_db: float, chain: dict, extra_atten_db: float = 0.0
 def encode_filtered(src: Path, audio_filter: str) -> Path:
     """src through an ffmpeg -af string into a temp mp3 next to it, same bitrate, checked to decode and keep its duration."""
     bitrate = probe(src, "bit_rate,duration")
-    tmp = src.with_name(f".level-{src.name}")
+    tmp = src.with_name(f".level-{os.getpid()}-{src.name}")
     try:
         subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(src), "-af", audio_filter,
                         "-c:a", "libmp3lame", "-b:a", str(bitrate["bit_rate"]), "-f", "mp3", str(tmp)],
@@ -450,7 +454,9 @@ def cmd_apply(args) -> int:
         return 1
     if journal and not args.dry_run:
         journal = recover_pending(lib, plan_id, journal)
-    done = {j["key"] for j in journal if j.get("state", "done") == "done"}
+    done = set()
+    for j in journal:  # the latest line per key wins: an open pending line re-opens a key
+        (done.add if j.get("state", "done") == "done" else done.discard)(j["key"])
     manifest = load_manifest(lib)
     todo = {}
     for vid, v in sorted(plan["voices"].items()):
@@ -500,15 +506,19 @@ def cmd_add_voice(args) -> int:
     """Measure only the named voices (never leveled) and add their gains to the plan; apply the new plan afterwards."""
     lib = Path(args.library)
     plan_path = Path(args.plan) if args.plan else default_plan_path(lib)
-    plan = json.loads(plan_path.read_text())
-    old_hash = plan_hash(plan)
+    try:
+        plan = json.loads(plan_path.read_text())
+        old_hash = plan_hash(plan)
+        plan["voices"], plan["chain"], plan["target"]
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        print(f"refusing to add: cannot read plan {plan_path}: {type(exc).__name__}: {exc}", file=sys.stderr)
+        return 1
     if plan.get("plan_hash") != old_hash:
         print(f"refusing to add: plan hash {plan.get('plan_hash')} does not match its content ({old_hash}); "
               f"the plan was edited", file=sys.stderr)
         return 1
     manifest = load_manifest(lib)
-    leveled = {voice_id(manifest[j["key"]]) for j in read_journal(lib)
-               if j.get("state", "done") == "done" and j["key"] in manifest}
+    leveled = {voice_id(manifest[j["key"]]) for j in read_journal(lib) if j["key"] in manifest}  # done or pending
     for vid in args.voices:
         if vid in plan["voices"] or vid in leveled:
             print(f"refusing to add {vid}: it is already in the plan or has clips in the journal "
@@ -543,6 +553,15 @@ def has_done_line(lib: Path, key: str) -> bool:
         j["key"] == key and j.get("state", "done") == "done" for j in read_journal(lib))
 
 
+def reopen_key(lib: Path, key: str) -> None:
+    """Open pending line for a re-recorded key whose old done line is stale, so the next apply levels it.
+    old_sha256 is the current file, so recover_pending sees no replace and leaves it open."""
+    last = [j for j in read_journal(lib) if j["key"] == key][-1]
+    path = lib / last["file"]
+    journal_append(lib, {"state": "pending", "key": key, "file": last["file"], "plan": last["plan"],
+                         "gain_db": last.get("gain_db", 0), "old_sha256": file_sha256(path)})
+
+
 def level_saved(lib: Path, key: str) -> bool:
     """Level one clip soundbite.save just stored, like apply would (same chain, peak guard and journal lines).
 
@@ -552,11 +571,18 @@ def level_saved(lib: Path, key: str) -> bool:
         stale = has_done_line(lib, key)  # a re-recorded key: its old leveled copy is gone
         if _level_saved(lib, key):
             return True
+        if stale:
+            reopen_key(lib, key)
         reason = "no plan, or no gain for its voice"  # normal for an unleveled library: quiet unless stale
         if not stale:
             return False
     except (Exception, SystemExit) as exc:
         reason = f"{type(exc).__name__}: {exc}"
+        if stale:
+            try:
+                reopen_key(lib, key)
+            except Exception:
+                pass
     print(f"soundbite level: {key} left unleveled ({reason})"
           + ("; stale-unleveled: its journal says leveled but the file was replaced" if stale else ""),
           file=sys.stderr)
