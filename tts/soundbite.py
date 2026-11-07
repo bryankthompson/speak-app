@@ -116,7 +116,12 @@ def save(text: str, provider: str, voice: str, audio: bytes, model: str = "", sp
         key, rel = rel_path(text, provider, voice, model, speed)
         path = repo_dir() / rel
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(audio)
+        tmp = path.with_name(path.name + f".{os.getpid()}.tmp")
+        try:
+            tmp.write_bytes(audio)
+            os.replace(tmp, path)  # a crash leaves the old clip or none, never a torn mp3
+        finally:
+            tmp.unlink(missing_ok=True)
         with _locked():
             manifest = _load()
             manifest[key] = {

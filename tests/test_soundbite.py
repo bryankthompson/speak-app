@@ -73,3 +73,13 @@ def test_adopt_ignores_missing_and_tiny_files(repo):
     p.write_bytes(b"fake")
     (repo / "manifest.json").write_text("{}")
     assert soundbite.adopt("tiny", "openai", "onyx", "tts-1") is False
+
+
+def test_crash_while_writing_leaves_the_old_clip_and_no_temp_file(monkeypatch):
+    p = soundbite.save("Hi", "openai", "onyx", b"OLD", "tts-1")
+    def boom(*a, **k):
+        raise OSError("disk full")
+    monkeypatch.setattr(soundbite.os, "replace", boom)
+    assert soundbite.save("Hi", "openai", "onyx", b"NEW", "tts-1") is None
+    assert p.read_bytes() == b"OLD"
+    assert not list(p.parent.glob("*.tmp"))
