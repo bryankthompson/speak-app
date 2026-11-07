@@ -49,10 +49,20 @@ def plan_for(lib, tmp_path, target=-18):
     return out
 
 
-def test_gain_sign_and_cap():
-    assert level_clips.compute_gain(-18, -26, -10) == (8.0, False)
-    assert level_clips.compute_gain(-18, -10, -3) == (-8.0, False)
-    assert level_clips.compute_gain(-18, -26, -4) == (3.0, True)  # peak -4 + 8 would pass -1
+def test_gain_has_no_peak_cap_and_limiting_is_estimated():
+    assert level_clips.compute_gain(-18, -26) == 8.0
+    assert level_clips.compute_gain(-18, -10) == -8.0
+    assert level_clips.limiting_estimate([-10, -4], 8.0) == (1, 5.0)  # -4 + 8 = +4 dBFS, 5 dB over -1
+
+
+def test_clip_pushed_over_ceiling_ends_under_it(tmp_path):
+    lib = make_library(tmp_path / "lib", [("v", "a", -3, 2)])  # peak about -21 dBFS
+    plan = tmp_path / "plan.json"
+    plan.write_text(json.dumps({"target": -18, "voices": {"openai/v": {"gain_db": 30.0}}}))  # +30 -> +9 dBFS
+    assert run("apply", plan, "--library", lib).returncode == 0
+    ver = run("verify", "--library", lib)
+    peak = float(ver.stdout.split("max peak (sample/true):")[1].split("dBTP")[0])
+    assert peak <= -0.5, ver.stdout
 
 
 def test_measure_plan_gains_have_right_sign(lib, tmp_path):

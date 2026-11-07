@@ -25,7 +25,11 @@ from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 DEFAULT_TARGET = -18.0
+LIMIT_LINEAR = round(10 ** (-1.0 / 20), 3)  # -1 dBFS
 PEAK_CEILING_DBFS = -1.0
+VERIFY_MAX_PEAK_DBTP = -0.5
+FLAG_LIMITED_FRACTION = 0.10
+FLAG_REDUCTION_DB = 6.0
 MIN_MEDIAN_SECONDS = 1.0
 MIN_GAIN_DB = 0.5
 MAX_SPREAD_DB = 3.0
@@ -43,13 +47,15 @@ def voice_id(entry: dict) -> str:
     return f"{entry['provider']}/{entry['voice']}"
 
 
-def compute_gain(target: float, median_lufs: float, max_peak_dbfs: float):
-    """(gain_db, capped): move the median to target, but keep the loudest clip <= the peak ceiling."""
-    gain = target - median_lufs
-    cap = PEAK_CEILING_DBFS - max_peak_dbfs
-    if gain > cap:
-        return round(cap, 2), True
-    return round(gain, 2), False
+def compute_gain(target: float, median_lufs: float) -> float:
+    """Move the voice median to target. Peaks are held by the limiter in reencode, not by this gain."""
+    return round(target - median_lufs, 2)
+
+
+def limiting_estimate(peaks, gain_db: float):
+    """(clips pushed over the ceiling, largest reduction in dB), from peak + gain vs the ceiling."""
+    over = [p + gain_db - PEAK_CEILING_DBFS for p in peaks]
+    return sum(1 for o in over if o > 0), round(max([0.0] + over), 2)
 
 
 def load_manifest(lib: Path) -> dict:
@@ -123,6 +129,7 @@ def voice_stats(manifest: dict, results: dict) -> dict:
         basis = long_clips or [c for c in clips if c["lufs"] is not None]
         stats[vid] = {"median_lufs": round(statistics.median(c["lufs"] for c in basis), 2),
                       "max_peak_dbfs": round(max(c["peak"] for c in clips), 2),
+                      "peaks": [c["peak"] for c in clips],
                       "clips": len(clips), "short_only": not long_clips}
     return stats
 
@@ -137,11 +144,11 @@ def report_failures(failures) -> int:
 
 
 def format_table(voices: dict) -> str:
-    lines = [f"{'voice':<48}{'clips':>6}{'median LUFS':>13}{'peak dBFS':>11}{'gain dB':>9}  note"]
+    lines = [f"{'voice':<48}{'clips':>6}{'median LUFS':>13}{'peak dBFS':>11}{'gain dB':>9}{'limited':>9}{'max GR':>8}  note"]
     for vid, v in sorted(voices.items(), key=lambda kv: kv[1]["gain_db"]):
-        note = " ".join(n for n, on in (("CAPPED", v["capped"]), ("short-only", v["short_only"])) if on)
+        note = " ".join(n for n, on in (("LIMITER-HEAVY", v["flagged"]), ("short-only", v["short_only"])) if on)
         lines.append(f"{vid:<48}{v['clips']:>6}{v['median_lufs']:>13.2f}{v['max_peak_dbfs']:>11.2f}"
-                     f"{v['gain_db']:>+9.2f}  {note}")
+                     f"{v['gain_db']:>+9.2f}{v['limited_clips']:>9}{v['max_reduction_db']:>8.2f}  {note}")
     return "\n".join(lines)
 
 
@@ -154,8 +161,11 @@ def cmd_measure(args) -> int:
     stats = voice_stats(manifest, results)
     voices = {}
     for vid, s in stats.items():
-        gain, capped = compute_gain(args.target, s["median_lufs"], s["max_peak_dbfs"])
-        voices[vid] = {**s, "gain_db": gain, "capped": capped}
+        gain = compute_gain(args.target, s["median_lufs"])
+        limited, reduction = limiting_estimate(s.pop("peaks"), gain)
+        flagged = limited / s["clips"] > FLAG_LIMITED_FRACTION or reduction > FLAG_REDUCTION_DB
+        voices[vid] = {**s, "gain_db": gain, "limited_clips": limited, "max_reduction_db": reduction,
+                       "flagged": flagged}
     medians = [v["median_lufs"] for v in voices.values()]
     spread = round(max(medians) - min(medians), 2) if medians else 0.0
     table = format_table(voices)
@@ -184,7 +194,7 @@ def reencode(src: Path, gain_db: float) -> Path:
     """Gain-adjusted copy next to src (temp file), verified to decode with the same duration."""
     bitrate = probe(src, "bit_rate,duration")
     tmp = src.with_name(f".level-{src.name}")
-    subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(src), "-af", f"volume={gain_db}dB",
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(src), "-af", f"volume={gain_db}dB,alimiter=limit={LIMIT_LINEAR}:attack=5:release=50:level=0",
                     "-c:a", "libmp3lame", "-b:a", str(bitrate["bit_rate"]), "-f", "mp3", str(tmp)],
                    check=True)
     new = probe(tmp, "duration")
@@ -251,7 +261,9 @@ def cmd_verify(args) -> int:
     medians = [s["median_lufs"] for s in stats.values()]
     spread = round(max(medians) - min(medians), 2) if medians else 0.0
     print(f"\nspread across {len(stats)} voices: {spread} LU (limit {MAX_SPREAD_DB}, target {args.target})")
-    return 1 if report_failures(failures) or spread > MAX_SPREAD_DB else 0
+    top = max((r["peak"] for r in results.values()), default=-99.0)
+    print(f"max peak (sample/true): {top:.2f} dBTP (limit {VERIFY_MAX_PEAK_DBTP})")
+    return 1 if report_failures(failures) or spread > MAX_SPREAD_DB or top > VERIFY_MAX_PEAK_DBTP else 0
 
 
 def ensure_deps(argv) -> None:
