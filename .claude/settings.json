@@ -125,6 +125,21 @@
             "command": "uv run /home/bryan/speak-app//.claude/hooks/session_event_tracker.py"
           }
         ]
+      },
+      {
+        "matcher": "compact",
+        "hooks": [
+          {
+            "type": "command",
+            "comment": "Load session context after compact",
+            "command": "uv run /home/bryan/speak-app//.claude/hooks/session_context_loader.py"
+          },
+          {
+            "type": "command",
+            "comment": "Track session compact event",
+            "command": "uv run /home/bryan/speak-app//.claude/hooks/session_event_tracker.py"
+          }
+        ]
       }
     ],
     "Stop": [

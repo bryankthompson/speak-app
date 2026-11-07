@@ -274,6 +274,10 @@ def notify_tts(message: str, priority: str = "normal") -> bool:
     Returns:
         True if successful, False otherwise
     """
+    # Bryan (2026-11-06): turn-end and agent-end chatter is not informative. Speak only
+    # when action is needed (priority "important"); cockpit lines say "go or no-go?".
+    if priority != "important":
+        return False
     # Format the completion message before checking coordination
     engineer_name = os.getenv('ENGINEER_NAME', 'Developer')
     formatted_message = f"I have finished {message}"
