@@ -138,6 +138,10 @@ library has no plan, or the voice has no gain in it, or leveling failed (one std
 and rerun `tts/level_clips.py apply` with the saved plan (`docs/LEVELING.md`, "Leveling new clips"). A brand-new
 voice gets its gain with `tts/level_clips.py add-voice provider/voice`.
 
+Cockpit-specific lines live in `phrases/lines/NAME.txt` (rows of `name: text`) and are recorded with
+`phrases/record.py --provider P --lines FILE`. `lyrika.txt` holds lyrika's 15 Studio lines (approval gates and
+attention alerts), recorded once in the arabella voice.
+
 ## Sound effects
 
 `phrases/sfx.py` makes eight short state sounds (`done`, `merged`, `question`, `needs-you`, `blocked`, `alert`,
