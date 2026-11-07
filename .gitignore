@@ -184,4 +184,7 @@ temp/
 *.backup
 
 # Runtime logs
-logs/phrases/corpus.tsv
+logs/
+
+# Mined real phrases (private; regenerate with phrases/mine.py)
+phrases/corpus.tsv

@@ -22,15 +22,26 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "tts"))
 import soundbite  # noqa: E402
 
 CFG = json.loads((Path(__file__).parent / "casting.json").read_text())
+PROFILES = json.loads((Path(__file__).parent / "profiles.json").read_text())
 OPENAI_USD_PER_M = {"tts-1": 15, "tts-1-hd": 30}  # published rates, unverified here
 
 
-def jobs(provider):
-    for c in CFG["cast"]:
-        if c["provider"] != provider:
+def jobs(provider, profile_ids=None, only=None):
+    """(profile, text) to record. Default: every assigned cockpit's name + the clause menu.
+    With profile_ids: those profiles, the name clip being the profile id (an audition set)."""
+    seen = set()
+    if profile_ids:
+        pairs = [(pid, pid) for pid in profile_ids]
+    else:
+        pairs = [(a["profile"], a.get("say", cockpit)) for cockpit, a in PROFILES["assignments"].items()]
+    for pid, say in pairs:
+        prof = PROFILES["profiles"][pid]
+        if prof["provider"] != provider or (only and pid not in only):
             continue
-        for text in [c["name"], *CFG["clauses"]]:
-            yield c, text
+        for text in [say, *CFG["clauses"]]:
+            if (pid, text) not in seen:
+                seen.add((pid, text))
+                yield {**prof, "name": pid}, text
 
 
 def bite_model(provider):
@@ -43,12 +54,21 @@ def bite_model(provider):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--provider", choices=["openai", "elevenlabs"], required=True)
+    ap.add_argument("--profile", action="append", help="record this profile's audition set (repeatable); default: --assigned")
+    ap.add_argument("--reindex", action="store_true", help="re-add clips that are on disk but missing from the manifest; no API calls")
+    ap.add_argument("--only", help="comma-separated profile ids to limit the run to")
+    ap.add_argument("--assigned", action="store_true", help="record every assigned cockpit's name + menu (the default)")
     ap.add_argument("--dry-run", action="store_true")
     a = ap.parse_args()
     model = bite_model(a.provider)
-    todo = [(c, t) for c, t in jobs(a.provider) if not soundbite.lookup(t, a.provider, c["voice"], model, 1.0)]
+    if a.reindex:
+        n = sum(soundbite.adopt(t, a.provider, c["voice"], model, 1.0)
+                for c, t in jobs(a.provider, a.profile, a.only.split(",") if a.only else None))
+        print(f"{a.provider}: re-indexed {n} clip(s) that were on disk but not in the manifest", file=sys.stderr)
+        return 0
+    todo = [(c, t) for c, t in jobs(a.provider, a.profile, a.only.split(',') if a.only else None) if not soundbite.lookup(t, a.provider, c["voice"], model, 1.0)]
     chars = sum(len(t) for _, t in todo)
-    price = f"${chars * OPENAI_USD_PER_M[CFG['openai_model']] / 1e6:.3f}" if a.provider == "openai" else f"{chars} credits at 1/char"
+    price = f"${chars * OPENAI_USD_PER_M[CFG['openai_model']] / 1e6:.3f}" if a.provider == "openai" else f"{chars} chars = {chars // 2} credits at the measured 0.5/char ({chars} worst case)"
     print(f"{a.provider}: {len(todo)} clips to record, {chars} chars, {price} (model {model})", file=sys.stderr)
     if a.dry_run:
         return 0

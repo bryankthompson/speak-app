@@ -204,6 +204,13 @@ def main():
         ]
         text = random.choice(messages)
     
+    # A line naming a cast lead ("hades: go or no-go?") is spoken in that lead's voice from the soundbite library
+    if not args.voice_id and os.getenv("TTS_ENABLED", "true") != "false":
+        sys.path.insert(0, str(Path(__file__).parent))
+        import phrase_join
+        if phrase_join.try_join(text):
+            sys.exit(0)
+
     # Create provider and speak
     tts = TTSProvider()
     
