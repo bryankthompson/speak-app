@@ -259,13 +259,13 @@ def test_peak_guard_pulls_an_overshooting_clip_under_the_guard(tmp_path):
     lib = noise_library(tmp_path / "lib")
     src = lib / "openai/v/n.mp3"
     unguarded = level_clips.reencode(src, 20.0, level_clips.CHAIN_DEFAULTS)
-    assert level_clips.decoded_peak_dbfs(unguarded) > level_clips.PEAK_GUARD_DBFS  # the failure the guard exists for
+    assert level_clips.decoded_true_peak_dbtp(unguarded) > level_clips.PEAK_GUARD_DBTP  # the failure the guard exists for
     unguarded.unlink()
     plan = write_plan(tmp_path / "plan.json", {"openai/v": 20.0})
     assert run("apply", plan, "--library", lib).returncode == 0
-    assert level_clips.decoded_peak_dbfs(src) <= level_clips.PEAK_GUARD_DBFS
+    assert level_clips.decoded_true_peak_dbtp(src) <= level_clips.PEAK_GUARD_DBTP
     done = [j for j in journal_lines(lib) if j["state"] == "done"][0]
-    assert done["extra_atten_db"] > 0 and done["peak_dbfs"] <= level_clips.PEAK_GUARD_DBFS
+    assert done["extra_atten_db"] > 0 and done["peak_dbtp"] <= level_clips.PEAK_GUARD_DBTP
     assert not list(lib.rglob(".level-*"))
 
 
@@ -273,12 +273,12 @@ def test_peak_guard_leaves_a_clip_that_needs_none(tmp_path):
     lib = make_library(tmp_path / "lib", [("v", "a", -6, 2)])
     assert run("apply", write_plan(tmp_path / "plan.json", {"openai/v": 6.0}), "--library", lib).returncode == 0
     done = [j for j in journal_lines(lib) if j["state"] == "done"][0]
-    assert done["extra_atten_db"] == 0 and done["peak_dbfs"] <= level_clips.PEAK_GUARD_DBFS
+    assert done["extra_atten_db"] == 0 and done["peak_dbtp"] <= level_clips.PEAK_GUARD_DBTP
 
 
 def test_peak_guard_fails_loudly_naming_the_clip(tmp_path, monkeypatch):
     lib = noise_library(tmp_path / "lib")
-    monkeypatch.setattr(level_clips, "decoded_peak_dbfs", lambda p: 1.0)
+    monkeypatch.setattr(level_clips, "decoded_true_peak_dbtp", lambda p: 1.0)
     with pytest.raises(RuntimeError, match="n.mp3.*still above"):
         level_clips.main(["apply", str(write_plan(tmp_path / "plan.json", {"openai/v": 20.0})), "--library", str(lib)])
     assert not list(lib.rglob(".level-*"))
@@ -293,7 +293,7 @@ def test_resumed_run_still_guards_the_peak(tmp_path, monkeypatch):
         level_clips.main(["apply", str(plan), "--library", str(lib)])
     monkeypatch.setattr(level_clips, "reencode_guarded", real)
     assert level_clips.main(["apply", str(plan), "--library", str(lib)]) == 0
-    assert level_clips.decoded_peak_dbfs(lib / "openai/v/n.mp3") <= level_clips.PEAK_GUARD_DBFS
+    assert level_clips.decoded_true_peak_dbtp(lib / "openai/v/n.mp3") <= level_clips.PEAK_GUARD_DBTP
 
 
 def test_measure_refuses_an_already_leveled_library(lib, tmp_path):
@@ -350,3 +350,147 @@ def test_new_clip_of_a_leveled_voice_is_leveled_by_rerunning_the_same_plan(tmp_p
     assert (lib / "openai/v/new.mp3").read_bytes() != fresh
     assert (lib / "openai/v/a.mp3").read_bytes() == old_a  # the already-leveled clip is not touched again
     assert json.loads((lib / "manifest.json").read_text())["k9"]["bytes"] == (lib / "openai/v/new.mp3").stat().st_size
+
+
+def sample_peak_dbfs(path):
+    err = subprocess.run(["ffmpeg", "-v", "info", "-nostats", "-i", str(path), "-af", "astats=measure_perchannel=none",
+                          "-f", "null", "-"], capture_output=True, text=True, check=True).stderr
+    return float(err.split("Peak level dB:")[-1].split()[0])
+
+
+def intersample_library(root, name="q", amplitude=0.9):
+    """Tone at fs/4 with a 45 degree phase: samples sit near -1.7 dBFS after +6 dB, the reconstructed wave near 0 dBTP."""
+    rel = f"openai/v/{name}.mp3"
+    (root / "openai/v").mkdir(parents=True, exist_ok=True)
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", f"aevalsrc={amplitude}*sin(2*PI*11025*t+PI/4):d=1:s=44100",
+                    "-c:a", "libmp3lame", "-b:a", "128k", str(root / rel)], check=True)
+    return rel
+
+
+def commit_all(root):
+    for cmd in (["init", "-q"], ["add", "-A"],
+                ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "x", "--allow-empty"]):
+        subprocess.run(["git", "-C", str(root), *cmd], check=True)
+
+
+def test_guard_catches_intersample_overshoot_a_sample_peak_misses(tmp_path):
+    lib = tmp_path / "lib"
+    rel = intersample_library(lib)
+    (lib / "manifest.json").write_text(json.dumps({"k0": {"provider": "openai", "voice": "v", "file": rel, "text": "q",
+                                                          "bytes": (lib / rel).stat().st_size}}))
+    commit_all(lib)
+    src = lib / rel
+    unguarded = level_clips.reencode(src, 6.0, level_clips.CHAIN_DEFAULTS)
+    assert sample_peak_dbfs(unguarded) < level_clips.PEAK_GUARD_DBTP  # a sample-peak guard would pass this
+    assert level_clips.decoded_true_peak_dbtp(unguarded) > level_clips.PEAK_GUARD_DBTP  # the true peak does not
+    unguarded.unlink()
+    assert run("apply", write_plan(tmp_path / "plan.json", {"openai/v": 6.0}), "--library", lib).returncode == 0
+    done = [j for j in journal_lines(lib) if j["state"] == "done"][0]
+    assert done["extra_atten_db"] > 0
+    assert level_clips.decoded_true_peak_dbtp(src) <= level_clips.PEAK_GUARD_DBTP
+    assert done["peak_dbtp"] == pytest.approx(level_clips.decoded_true_peak_dbtp(src), abs=0.01)
+
+
+def test_ffmpeg_true_peak_agrees_with_the_levels_block_verify_uses(tmp_path):
+    pytest.importorskip("numpy")
+    level_clips.sys.path.insert(0, str(level_clips.AOC_SRC))
+    from audio_observation.levels import levels_block
+    noise = noise_library(tmp_path / "noise", amplitude=0.9)
+    tone = tmp_path / "tone"
+    tone_src = tone / intersample_library(tone)
+    for src, tol in ((noise / "openai/v/n.mp3", 0.15), (tone_src, 1.0)):
+        ours, theirs = level_clips.decoded_true_peak_dbtp(src), levels_block(str(src))["truePeakDbtp"]
+        # the pure fs/4 tone is the one case levels_block under-reads (it skips the file edges); ffmpeg never reads lower
+        assert theirs - 0.01 <= ours <= theirs + tol, (src.name, ours, theirs)
+
+
+def over_library(root):
+    """Two clips: a normal one and an inter-sample-hot one (true peak over -0.5 dBTP), committed."""
+    root.mkdir()
+    sine(root / "openai/v/ok.mp3", -12, 2)
+    hot = intersample_library(root, "hot", amplitude=1.0)
+    man = {f"k{i}": {"provider": "openai", "voice": "v", "file": f, "text": f, "bytes": (root / f).stat().st_size}
+           for i, f in enumerate(["openai/v/ok.mp3", hot])}
+    (root / "manifest.json").write_text(json.dumps(man, indent=2, sort_keys=True) + "\n")
+    commit_all(root)
+    return root
+
+
+def test_fix_peaks_cuts_only_the_clip_over_the_limit(tmp_path):
+    lib = over_library(tmp_path / "lib")
+    ok_before = (lib / "openai/v/ok.mp3").read_bytes()
+    assert level_clips.decoded_true_peak_dbtp(lib / "openai/v/hot.mp3") > level_clips.VERIFY_MAX_PEAK_DBTP
+    res = run("fix-peaks", "--library", lib)
+    assert res.returncode == 0, res.stdout + res.stderr
+    assert (lib / "openai/v/ok.mp3").read_bytes() == ok_before
+    assert level_clips.decoded_true_peak_dbtp(lib / "openai/v/hot.mp3") <= level_clips.VERIFY_MAX_PEAK_DBTP
+    man = json.loads((lib / "manifest.json").read_text())
+    assert man["k1"]["bytes"] == (lib / "openai/v/hot.mp3").stat().st_size
+    assert man["k0"]["bytes"] == (lib / "openai/v/ok.mp3").stat().st_size
+    fixed = [j for j in journal_lines(lib) if j["state"] == "peakfix"]
+    assert [j["state"] for j in journal_lines(lib)] == ["peakfix_pending", "peakfix"]
+    assert fixed[0]["file"] == "openai/v/hot.mp3" and fixed[0]["peak_before"] > fixed[0]["peak_after"]
+    assert fixed[0]["atten_db"] > 0 and "old_sha256" in journal_lines(lib)[0]
+    assert run("verify", "--library", lib).returncode in (0, 1)  # verify still reads the journal-bearing library
+    assert not list(lib.rglob(".level-*"))
+
+
+def test_fix_peaks_second_run_is_a_no_op(tmp_path):
+    lib = over_library(tmp_path / "lib")
+    assert run("fix-peaks", "--library", lib).returncode == 0
+    commit_all(lib)
+    snapshot = {f: f.read_bytes() for f in lib.rglob("*") if f.is_file() and ".git" not in f.parts}
+    again = run("fix-peaks", "--library", lib)
+    assert again.returncode == 0 and "over -0.5 dBTP: 0" in again.stdout, again.stdout + again.stderr
+    assert snapshot == {f: f.read_bytes() for f in lib.rglob("*") if f.is_file() and ".git" not in f.parts}
+
+
+def test_fix_peaks_dry_run_writes_nothing(tmp_path):
+    lib = over_library(tmp_path / "lib")
+    res = run("fix-peaks", "--library", lib, "--dry-run")
+    assert res.returncode == 0 and "would cut openai/v/hot.mp3" in res.stdout
+    assert subprocess.run(["git", "-C", str(lib), "status", "--porcelain"], capture_output=True, text=True).stdout == ""
+
+
+def test_fix_peaks_refuses_dirty_tree(tmp_path):
+    lib = over_library(tmp_path / "lib")
+    (lib / "stray.txt").write_text("x")
+    res = run("fix-peaks", "--library", lib)
+    assert res.returncode == 1 and "uncommitted" in res.stderr
+    assert not (lib / "levels-applied.jsonl").exists()
+
+
+def test_fix_peaks_names_a_clip_still_over_after_its_tries(tmp_path, monkeypatch):
+    lib = over_library(tmp_path / "lib")
+    monkeypatch.setattr(level_clips, "decoded_true_peak_dbtp", lambda p: 1.0)
+    assert level_clips.main(["fix-peaks", "--library", str(lib)]) == 1
+    assert not list(lib.rglob(".level-*"))
+
+
+def test_fix_peaks_crash_after_replace_is_recovered_not_cut_twice(tmp_path, monkeypatch):
+    lib = over_library(tmp_path / "lib")
+    real = level_clips.journal_append
+
+    def die_on_fix(lib_, entry):
+        if entry["state"] == "peakfix":
+            raise RuntimeError("killed after os.replace")
+        real(lib_, entry)
+
+    monkeypatch.setattr(level_clips, "journal_append", die_on_fix)
+    with pytest.raises(RuntimeError):
+        level_clips.main(["fix-peaks", "--library", str(lib)])
+    monkeypatch.setattr(level_clips, "journal_append", real)
+    cut = (lib / "openai/v/hot.mp3").read_bytes()
+    assert level_clips.main(["fix-peaks", "--library", str(lib)]) == 0
+    assert (lib / "openai/v/hot.mp3").read_bytes() == cut
+    assert [j["state"] for j in journal_lines(lib)] == ["peakfix_pending", "peakfix"]
+
+
+def test_apply_ignores_peakfix_lines(tmp_path):
+    lib = make_library(tmp_path / "lib", [("v", "a", -6, 2)])
+    plan = write_plan(tmp_path / "plan.json", {"openai/v": 6.0})
+    assert run("apply", plan, "--library", lib).returncode == 0
+    level_clips.journal_append(lib, {"state": "peakfix", "key": "k0", "file": "openai/v/a.mp3", "peak_before": 0.1,
+                                     "peak_after": -1.0, "atten_db": 1.1})
+    again = run("apply", plan, "--library", lib)
+    assert again.returncode == 0 and "nothing to apply" in again.stdout, again.stderr

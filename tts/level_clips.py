@@ -4,6 +4,7 @@
     python3 tts/level_clips.py measure [--library DIR] [--out plan.json] [--target -18]
     python3 tts/level_clips.py apply PLAN [--library DIR] [--dry-run]
     python3 tts/level_clips.py verify [--library DIR] [--target -18] [--sample N]
+    python3 tts/level_clips.py fix-peaks [--library DIR] [--dry-run]
     python3 tts/level_clips.py run [--library DIR] [--target -18] [--out PLAN] [--dry-run]
 
 measure is read-only. apply re-encodes clips in place (same path, same manifest key) and
@@ -20,6 +21,7 @@ import fcntl
 import hashlib
 import importlib.util
 import json
+import math
 import os
 import re
 import statistics
@@ -39,9 +41,12 @@ CHAIN_DEFAULTS = {"highpass_hz": 80, "threshold_db": -24.0, "ratio": 2.5, "attac
                   "release_ms": 120, "makeup": 1, "limit": LIMIT_LINEAR}
 PEAK_CEILING_DBFS = -1.0
 VERIFY_MAX_PEAK_DBTP = -0.5
-PEAK_GUARD_DBFS = -0.8  # apply re-encodes a clip with extra attenuation when its decoded peak is above this
+PEAK_GUARD_DBTP = -0.8  # apply re-encodes a clip with extra attenuation when its decoded true peak is above this
+FIX_PEAK_TARGET_DBTP = -1.0  # fix-peaks attenuates a clip over VERIFY_MAX_PEAK_DBTP down to this
 PEAK_GUARD_TRIES = 3
 PEAK_GUARD_MARGIN_DB = 0.3
+FIX_PEAKS_TRIES = 3
+PEAKFIX_STATES = ("peakfix_pending", "peakfix")
 FLAG_LIMITED_FRACTION = 0.10
 FLAG_REDUCTION_DB = 6.0
 MIN_MEDIAN_SECONDS = 1.0
@@ -278,41 +283,51 @@ def git_dirty_paths(lib: Path) -> set:
     return {e[3:] for e in out.stdout.split("\0") if e and not Path(e[3:]).name.startswith(".level-")}
 
 
-def decoded_peak_dbfs(path: Path) -> float:
-    """Sample peak of the decoded file (float decode, so overshoot above 0 dBFS is not clipped away)."""
-    out = subprocess.run(["ffmpeg", "-v", "info", "-nostats", "-i", str(path), "-af", "astats=measure_perchannel=none",
-                          "-f", "null", "-"], capture_output=True, text=True, check=True)
-    peaks = [float(m) for m in re.findall(r"Peak level dB:\s*(-?[\d.]+|-inf)", out.stderr)]
+def decoded_true_peak_dbtp(path: Path) -> float:
+    """True peak (4x oversampled, ffmpeg ebur128) of the decoded file, in dBTP. Float decode, so overshoot
+    above 0 is not clipped away. Reads the same quantity as verify's levels_block truePeakDbtp, at or a
+    little above it, so a clip under the guard here is under verify's limit."""
+    out = subprocess.run(["ffmpeg", "-v", "error", "-nostats", "-i", str(path), "-af",
+                          "ebur128=peak=true:metadata=1,ametadata=mode=print:file=-", "-f", "null", "-"],
+                         capture_output=True, text=True, check=True)
+    peaks = [float(m) for m in re.findall(r"lavfi\.r128\.true_peak=(\S+)", out.stdout)]
     if not peaks:
-        raise RuntimeError(f"{path}: ffmpeg astats gave no peak level")
-    return peaks[-1]
+        raise RuntimeError(f"{path}: ffmpeg ebur128 gave no true peak")
+    top = max(peaks)
+    return 20 * math.log10(top) if top > 0 else -120.0
 
 
 def reencode_guarded(src: Path, gain_db: float, chain: dict):
-    """(temp file, extra_atten_db, peak_dbfs). libmp3lame overshoots the limiter ceiling, so the decoded
-    temp file is measured and, above PEAK_GUARD_DBFS, redone from src with more attenuation after the limiter."""
+    """(temp file, extra_atten_db, peak_dbtp). libmp3lame overshoots the limiter ceiling, and the
+    reconstructed signal overshoots the samples, so the decoded temp file's true peak is measured and, above
+    PEAK_GUARD_DBTP, redone from src with more attenuation after the limiter."""
     extra = 0.0
     for _ in range(PEAK_GUARD_TRIES + 1):
         tmp = reencode(src, gain_db, chain, extra) if extra else reencode(src, gain_db, chain)
         try:
-            peak = decoded_peak_dbfs(tmp)
+            peak = decoded_true_peak_dbtp(tmp)
         except BaseException:
             tmp.unlink(missing_ok=True)
             raise
-        if peak <= PEAK_GUARD_DBFS:
+        if peak <= PEAK_GUARD_DBTP:
             return tmp, extra, peak
         tmp.unlink(missing_ok=True)
-        extra = round(extra + peak - PEAK_GUARD_DBFS + PEAK_GUARD_MARGIN_DB, 2)
-    raise RuntimeError(f"{src}: peak {peak:.2f} dBFS is still above {PEAK_GUARD_DBFS} after "
+        extra = round(extra + peak - PEAK_GUARD_DBTP + PEAK_GUARD_MARGIN_DB, 2)
+    raise RuntimeError(f"{src}: true peak {peak:.2f} dBTP is still above {PEAK_GUARD_DBTP} after "
                        f"{PEAK_GUARD_TRIES} extra-attenuation tries")
 
 
 def reencode(src: Path, gain_db: float, chain: dict, extra_atten_db: float = 0.0) -> Path:
     """Chain-processed copy next to src (temp file), verified to decode with the same duration."""
+    return encode_filtered(src, chain_filter(chain, gain_db, extra_atten_db))
+
+
+def encode_filtered(src: Path, audio_filter: str) -> Path:
+    """src through an ffmpeg -af string into a temp mp3 next to it, same bitrate, checked to decode and keep its duration."""
     bitrate = probe(src, "bit_rate,duration")
     tmp = src.with_name(f".level-{src.name}")
     try:
-        subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(src), "-af", chain_filter(chain, gain_db, extra_atten_db),
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(src), "-af", audio_filter,
                         "-c:a", "libmp3lame", "-b:a", str(bitrate["bit_rate"]), "-f", "mp3", str(tmp)],
                        check=True)
         new = probe(tmp, "duration")
@@ -325,8 +340,9 @@ def reencode(src: Path, gain_db: float, chain: dict, extra_atten_db: float = 0.0
     return tmp
 
 
-def read_journal(lib: Path) -> list:
-    """Journal lines in order. A torn last line (crash mid-write) is dropped with a warning."""
+def read_journal(lib: Path, peakfix: bool = False) -> list:
+    """Leveling lines in order (peakfix lines too with peakfix=True). A torn last line (crash mid-write)
+    is dropped with a warning."""
     path = lib / APPLIED_LOG
     if not path.exists():
         return []
@@ -339,7 +355,7 @@ def read_journal(lib: Path) -> list:
             if i != len(lines) - 1:
                 raise SystemExit(f"{path}: line {i + 1} is not valid JSON")
             print(f"warning: ignoring torn last line of {path}", file=sys.stderr)
-    return entries
+    return entries if peakfix else [e for e in entries if e.get("state") not in PEAKFIX_STATES]
 
 
 def journal_append(lib: Path, entry: dict) -> None:
@@ -431,7 +447,7 @@ def cmd_apply(args) -> int:
         print("nothing to apply: every voice is within 0.5 dB or already leveled by this plan")
         return 0
     if not args.dry_run:
-        owned = {APPLIED_LOG, "manifest.json"} | {j["file"] for j in journal}
+        owned = {APPLIED_LOG, "manifest.json"} | {j["file"] for j in read_journal(lib, peakfix=True) if "file" in j}
         dirty = git_dirty_paths(lib) - {".manifest.lock"}
         if dirty - (owned if journal else set()):
             print(dirty_message(lib), file=sys.stderr)
@@ -452,7 +468,7 @@ def cmd_apply(args) -> int:
                 os.replace(tmp, path)
                 journal_append(lib, {"state": "done", "key": key, "file": manifest[key]["file"],
                                      "plan": plan_id, "gain_db": gain, "bytes": path.stat().st_size,
-                                     "extra_atten_db": extra, "peak_dbfs": round(peak, 2)})
+                                     "extra_atten_db": extra, "peak_dbtp": round(peak, 2)})
             sync_manifest(lib, plan_id)
     except BaseException:
         print("apply stopped part-way: rerun the same command to resume where it left off", file=sys.stderr)
@@ -489,6 +505,90 @@ def cmd_verify(args) -> int:
     top = max((r["peak"] for r in results.values()), default=-99.0)
     print(f"max peak (sample/true): {top:.2f} dBTP (limit {VERIFY_MAX_PEAK_DBTP})")
     return 1 if report_failures(failures) or spread > MAX_SPREAD_DB or top > VERIFY_MAX_PEAK_DBTP else 0
+
+
+def peakfix_atten_db(peak: float) -> float:
+    """Attenuation that takes a clip at `peak` dBTP down to FIX_PEAK_TARGET_DBTP."""
+    return round(peak - FIX_PEAK_TARGET_DBTP, 2)
+
+
+def peakfix_reencode(src: Path, peak_before: float):
+    """(temp file, atten_db, peak_after): src re-encoded with a plain volume cut, redone with more cut from the
+    same src (one generation, not one per try) until its decoded true peak is within VERIFY_MAX_PEAK_DBTP."""
+    atten, peak = peakfix_atten_db(peak_before), peak_before
+    for _ in range(FIX_PEAKS_TRIES):
+        tmp = encode_filtered(src, f"volume=-{atten}dB")
+        try:
+            peak = decoded_true_peak_dbtp(tmp)
+        except BaseException:
+            tmp.unlink(missing_ok=True)
+            raise
+        if peak <= VERIFY_MAX_PEAK_DBTP:
+            return tmp, atten, peak
+        tmp.unlink(missing_ok=True)
+        atten = round(atten + peak - FIX_PEAK_TARGET_DBTP, 2)
+    return None, atten, peak
+
+
+def recover_peakfix(lib: Path) -> None:
+    """A peakfix_pending line with no peakfix line means the run died around os.replace; if the file no longer
+    matches old_sha256 the replace happened, so record the peakfix line (never cut that clip twice)."""
+    journal = read_journal(lib, peakfix=True)
+    finished = {j["key"] for j in journal if j.get("state") == "peakfix"}
+    latest = {j["key"]: j for j in journal if j.get("state") == "peakfix_pending"}
+    for key, pend in latest.items():
+        path = lib / pend["file"]
+        if key not in finished and file_sha256(path) != pend["old_sha256"]:
+            journal_append(lib, {"state": "peakfix", "key": key, "file": pend["file"], "peak_before": pend["peak_before"],
+                                 "peak_after": round(decoded_true_peak_dbtp(path), 2), "atten_db": pend["atten_db"]})
+            print(f"recovered {pend['file']}: cut before the crash, marked done", file=sys.stderr)
+
+
+def cmd_fix_peaks(args) -> int:
+    """Cut the few clips whose true peak is over verify's limit, in place, from their current audio."""
+    lib = Path(args.library)
+    if not args.dry_run:
+        owned = {APPLIED_LOG, "manifest.json"} | {j["file"] for j in read_journal(lib, peakfix=True)}
+        if git_dirty_paths(lib) - {".manifest.lock"} - owned:
+            print(dirty_message(lib).replace("apply", "fix-peaks"), file=sys.stderr)
+            return 1
+        for stale in lib.rglob(".level-*"):  # temp files left by a killed run
+            stale.unlink()
+        recover_peakfix(lib)
+    manifest = load_manifest(lib)
+    results, failures = measure_all(lib, manifest)
+    over = {k: r["peak"] for k, r in sorted(results.items()) if r["peak"] > VERIFY_MAX_PEAK_DBTP}
+    print(f"clips measured: {len(results)}  over {VERIFY_MAX_PEAK_DBTP} dBTP: {len(over)}")
+    still_over = []
+    try:
+        for key, before in over.items():
+            entry = manifest[key]
+            path = lib / entry["file"]
+            if args.dry_run:
+                print(f"would cut {entry['file']}: {before:+.2f} dBTP, {peakfix_atten_db(before)} dB")
+                continue
+            journal_append(lib, {"state": "peakfix_pending", "key": key, "file": entry["file"], "peak_before": round(before, 2),
+                                 "atten_db": peakfix_atten_db(before), "old_sha256": file_sha256(path)})
+            tmp, atten, after = peakfix_reencode(path, before)
+            if tmp is None:
+                still_over.append((entry["file"], after))
+                continue
+            os.replace(tmp, path)
+            journal_append(lib, {"state": "peakfix", "key": key, "file": entry["file"], "peak_before": round(before, 2),
+                                 "peak_after": round(after, 2), "atten_db": atten})
+            print(f"cut {entry['file']}: {before:+.2f} -> {after:+.2f} dBTP ({atten} dB)")
+    finally:
+        if not args.dry_run:
+            synced = set(over) | {j["key"] for j in read_journal(lib, peakfix=True) if j.get("state") == "peakfix"}
+            with manifest_locked(lib):
+                fresh = load_manifest(lib)
+                for key in synced:
+                    if key in fresh and (lib / fresh[key]["file"]).exists():
+                        fresh[key]["bytes"] = (lib / fresh[key]["file"]).stat().st_size
+                write_json_atomic(lib / "manifest.json", fresh)
+    for path, peak in still_over:
+        print(f"STILL OVER after {FIX_PEAKS_TRIES} tries: {path} at {peak:+.2f} dBTP", file=sys.stderr)
+    return 1 if report_failures(failures) or still_over else 0
 
 
 def cmd_run(args) -> int:
@@ -535,13 +635,13 @@ def main(argv=None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     sub = p.add_subparsers(dest="cmd", required=True)
-    for name in ("measure", "apply", "verify", "run"):
+    for name in ("measure", "apply", "verify", "run", "fix-peaks"):
         s = sub.add_parser(name)
-        if name in ("apply", "run"):
+        if name in ("apply", "run", "fix-peaks"):
             if name == "apply":
                 s.add_argument("plan")
             s.add_argument("--dry-run", action="store_true")
-        if name != "apply":
+        if name not in ("apply", "fix-peaks"):
             s.add_argument("--target", type=float, default=DEFAULT_TARGET)
         if name == "measure":
             s.add_argument("--ratio", type=float, default=CHAIN_DEFAULTS["ratio"])
@@ -557,7 +657,7 @@ def main(argv=None) -> int:
     args = p.parse_args(argv)
     if args.cmd != "apply":
         ensure_deps(argv)
-    return {"measure": cmd_measure, "apply": cmd_apply, "verify": cmd_verify, "run": cmd_run}[args.cmd](args)
+    return {"measure": cmd_measure, "apply": cmd_apply, "verify": cmd_verify, "run": cmd_run, "fix-peaks": cmd_fix_peaks}[args.cmd](args)
 
 
 if __name__ == "__main__":

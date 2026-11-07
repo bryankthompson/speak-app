@@ -57,7 +57,7 @@ def test_every_documented_record_flag_exists():
 
 
 def test_every_documented_level_clips_flag_exists():
-    # level_clips.py defines its flags in one loop over subcommands (measure, apply, verify, run); every
+    # level_clips.py defines its flags in one loop over subcommands (measure, apply, verify, run, fix-peaks); every
     # add_argument("--x") in it counts, so a flag documented for the wrong subcommand is not caught here.
     assert {"--library", "--dry-run", "--target"} <= documented_flags("level_clips.py")
     missing = documented_flags("level_clips.py") - argparse_flags("tts/level_clips.py")
