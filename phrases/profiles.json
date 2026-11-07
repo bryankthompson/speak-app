@@ -302,6 +302,38 @@
     "2d-to-3d-sbs-converter": {
       "profile": "sam",
       "say": "converter"
+    },
+    "candybone": {
+      "profile": "arabella",
+      "say": "candybone"
+    },
+    "candybone-2": {
+      "profile": "arabella",
+      "say": "candybone two"
+    },
+    "candybone-3": {
+      "profile": "arabella",
+      "say": "candybone three"
+    },
+    "nosunshine": {
+      "profile": "arabella",
+      "say": "nosunshine"
+    },
+    "creative-candybone": {
+      "profile": "arabella",
+      "say": "creative candybone"
+    },
+    "candybone two": {
+      "profile": "arabella",
+      "say": "candybone two"
+    },
+    "candybone three": {
+      "profile": "arabella",
+      "say": "candybone three"
+    },
+    "creative candybone": {
+      "profile": "arabella",
+      "say": "creative candybone"
     }
   }
 }
