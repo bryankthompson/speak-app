@@ -562,6 +562,10 @@ def generate_context_rich_message(info: Dict[str, Any]) -> str:
 
 def notify_tts(message: str, priority: str = "normal") -> bool:
     """Send TTS notification using coordinated system or fallback."""
+    # Bryan (2026-11-06): turn-end and agent-end chatter is not informative. Speak only
+    # when action is needed (priority "important"); cockpit lines say "go or no-go?".
+    if priority != "important":
+        return False
     
     # Use coordinated TTS if available
     if COORDINATED_TTS_AVAILABLE:

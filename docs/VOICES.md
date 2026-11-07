@@ -118,6 +118,23 @@ Append it to the end of `clauses` in `phrases/casting.json`, then run the dry-ru
 changed spelling orphans every stored clip of it, and cockpit briefs that use the old spelling fall back to paid,
 whole-line speech. The spellings are a contract with the cockpit lead brief.
 
+## When new audio is generated (and what it costs)
+
+Only three things ever create audio; everything else plays a stored clip for free.
+
+| What you do | New audio? | Cost | Levelled? |
+|---|---|---|---|
+| `speak "name: clause"` with a menu clause whose clips are stored | no, plays stored clips | free | yes (the library is levelled) |
+| `speak "name: any other text"`, or a menu clause not yet recorded for that voice | yes, the whole line is spoken once by that voice's provider and saved | paid, once per distinct line; free next time | no, not until the next level run |
+| `phrases/record.py` (new voice, new clause) or `phrases/sfx.py` | yes, on purpose | paid; run `--dry-run` first | no, not until the next level run |
+
+So prefer menu clauses in cockpit briefs: they are free and already levelled. Free text is fine for a one-off, but each
+new distinct line costs a call and arrives at the provider's own loudness, quieter or louder than the rest.
+
+After recording new clips (or after free-text lines have piled up), level them: commit the library, then rerun
+`tts/level_clips.py apply` with the saved plan (`docs/LEVELING.md`, "Leveling new clips"). A brand-new voice cannot
+be levelled that way yet.
+
 ## Sound effects
 
 `phrases/sfx.py` makes eight short state sounds (`done`, `merged`, `question`, `needs-you`, `blocked`, `alert`,
@@ -138,9 +155,8 @@ yet; they are stored for callers that want an earcon.
 ## Gallery (local only)
 
 `./run_local.sh` serves a read-only page of every profile and the library on `http://127.0.0.1:8765`
-(`--port N`, `--open` opens a browser, `--status`, `--stop`). It makes no API calls. Its module,
-`tts/library_web.py`, is not on main yet: it lives on the unmerged branch `lane/voice-gallery`, and `run_local.sh`
-looks for it in a sibling `../speak-app-voice-gallery` checkout until then.
+(`--port N`, `--open` opens a browser, `--status`, `--stop`). It makes no API calls. Its module is
+`tts/library_web.py`.
 
 ## Backups
 
