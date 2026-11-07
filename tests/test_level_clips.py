@@ -494,3 +494,141 @@ def test_apply_ignores_peakfix_lines(tmp_path):
                                      "peak_after": -1.0, "atten_db": 1.1})
     again = run("apply", plan, "--library", lib)
     assert again.returncode == 0 and "nothing to apply" in again.stdout, again.stderr
+
+
+# --- add-voice and save-time leveling ---
+
+def commit(root, msg="x"):
+    for cmd in (["add", "-A"], ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", msg]):
+        subprocess.run(["git", "-C", str(root), *cmd], check=True)
+
+
+def add_clip(lib, voice, name, vol, secs=2):
+    """Add a clip + manifest entry (no commit); returns its key."""
+    rel = f"openai/{voice}/{name}.mp3"
+    sine(lib / rel, vol, secs)
+    man = json.loads((lib / "manifest.json").read_text())
+    key = f"n-{voice}-{name}"
+    man[key] = {"provider": "openai", "voice": voice, "file": rel, "text": name, "bytes": (lib / rel).stat().st_size}
+    (lib / "manifest.json").write_text(json.dumps(man))
+    return key
+
+
+def test_add_voice_measures_only_the_new_voice_and_keeps_the_old_journal_valid(tmp_path):
+    lib = make_library(tmp_path / "lib", [("old", "a", -6, 2)])
+    plan = write_plan(tmp_path / "plan.json", {"openai/old": 6.0})
+    old_hash = json.loads(plan.read_text())["plan_hash"]
+    assert run("apply", plan, "--library", lib).returncode == 0
+    old_bytes = (lib / "openai/old/a.mp3").read_bytes()
+    add_clip(lib, "fresh", "a", -12)
+    add_clip(lib, "fresh", "b", -12)
+    commit(lib)
+    res = run("add-voice", "openai/fresh", "--library", lib, "--plan", plan)
+    assert res.returncode == 0, res.stderr
+    new = json.loads(plan.read_text())
+    assert set(new["voices"]) == {"openai/old", "openai/fresh"}
+    assert new["voices"]["openai/fresh"]["gain_db"] > 6.0  # quieter voice, bigger gain
+    assert new["voices"]["openai/old"] == {"gain_db": 6.0}  # the old voice was not re-measured
+    assert new["previous_hashes"] == [old_hash] and new["plan_hash"] != old_hash
+    res = run("apply", plan, "--library", lib)
+    assert res.returncode == 0 and "2 clips" in res.stdout and "openai/old" not in res.stdout, res.stdout + res.stderr
+    assert (lib / "openai/old/a.mp3").read_bytes() == old_bytes
+    assert {j["plan"] for j in journal_lines(lib)} == {old_hash, new["plan_hash"]}
+
+
+def test_add_voice_refuses_a_leveled_or_planned_voice_and_an_unknown_one(tmp_path):
+    lib = make_library(tmp_path / "lib", [("old", "a", -6, 2)])
+    plan = write_plan(tmp_path / "plan.json", {"openai/old": 6.0})
+    before = plan.read_text()
+    assert run("apply", plan, "--library", lib).returncode == 0
+    for voice in ("openai/old", "openai/nobody"):
+        res = run("add-voice", voice, "--library", lib, "--plan", plan)
+        assert res.returncode == 1 and "refusing" in res.stderr, res.stderr
+    assert plan.read_text() == before
+
+
+def saved_clip(lib, voice, name, vol, secs=3):
+    """A new clip as soundbite.save leaves it: file + manifest entry, raw. Returns (key, path)."""
+    key = add_clip(lib, voice, name, vol, secs)
+    return key, lib / f"openai/{voice}/{name}.mp3"
+
+
+def test_save_time_leveling_then_apply_does_not_encode_twice(tmp_path, monkeypatch):
+    lib = make_library(tmp_path / "lib", [("v", "a", -6, 2)])
+    plan = write_plan(tmp_path / "plan.json", {"openai/v": 6.0})
+    assert run("apply", plan, "--library", lib).returncode == 0
+    commit(lib)
+    key, path = saved_clip(lib, "v", "new", -6)
+    raw = path.read_bytes()
+    monkeypatch.setenv("SOUNDBITE_PLAN", str(plan))
+    assert level_clips.level_saved(lib, key) is True
+    leveled = path.read_bytes()
+    assert leveled != raw
+    states = [j["state"] for j in journal_lines(lib) if j["key"] == key]
+    assert states == ["pending", "done"]
+    assert json.loads((lib / "manifest.json").read_text())[key]["bytes"] == len(leveled)
+    res = run("apply", plan, "--library", lib)  # journal-owned files do not trip the clean-tree rule
+    assert res.returncode == 0 and "nothing to apply" in res.stdout, res.stdout + res.stderr
+    assert path.read_bytes() == leveled
+
+
+def test_save_time_result_matches_what_apply_would_produce(tmp_path, monkeypatch):
+    clips = [("v", "a", -6, 3)]
+    lib = make_library(tmp_path / "lib", clips)
+    ref = make_library(tmp_path / "ref", clips)
+    plan = write_plan(tmp_path / "plan.json", {"openai/v": 6.0})
+    monkeypatch.setenv("SOUNDBITE_PLAN", str(plan))
+    assert level_clips.level_saved(lib, "k0") is True
+    assert level_clips.main(["apply", str(plan), "--library", str(ref)]) == 0
+    assert (lib / "openai/v/a.mp3").read_bytes() == (ref / "openai/v/a.mp3").read_bytes()
+
+
+def test_crash_between_save_time_encode_and_done_recovers_like_apply(tmp_path, monkeypatch):
+    clips = [("v", "a", -6, 3)]
+    lib = make_library(tmp_path / "lib", clips)
+    ref = make_library(tmp_path / "ref", clips)
+    plan = write_plan(tmp_path / "plan.json", {"openai/v": 6.0})
+    monkeypatch.setenv("SOUNDBITE_PLAN", str(plan))
+    assert level_clips.main(["apply", str(plan), "--library", str(ref)]) == 0
+    real = level_clips.journal_append
+
+    def die_on_done(lib_, entry):
+        if entry["state"] == "done":
+            raise RuntimeError("killed after os.replace")
+        real(lib_, entry)
+
+    monkeypatch.setattr(level_clips, "journal_append", die_on_done)
+    assert level_clips.level_saved(lib, "k0") is False  # fails open, does not raise
+    monkeypatch.setattr(level_clips, "journal_append", real)
+    assert [j["state"] for j in journal_lines(lib)] == ["pending"]
+    assert level_clips.main(["apply", str(plan), "--library", str(lib)]) == 0
+    assert (lib / "openai/v/a.mp3").read_bytes() == (ref / "openai/v/a.mp3").read_bytes()  # leveled once
+    assert [j["state"] for j in journal_lines(lib)] == ["pending", "done"]
+
+
+def test_save_time_ffmpeg_failure_keeps_the_clip_and_does_not_raise(tmp_path, monkeypatch, capsys):
+    lib = make_library(tmp_path / "lib", [("v", "a", -6, 2)])
+    plan = write_plan(tmp_path / "plan.json", {"openai/v": 6.0})
+    monkeypatch.setenv("SOUNDBITE_PLAN", str(plan))
+    raw = (lib / "openai/v/a.mp3").read_bytes()
+    monkeypatch.setenv("PATH", str(tmp_path))  # no ffmpeg
+    assert level_clips.level_saved(lib, "k0") is False
+    assert (lib / "openai/v/a.mp3").read_bytes() == raw
+    assert capsys.readouterr().err.count("left unleveled") == 1
+    assert not (lib / level_clips.APPLIED_LOG).exists()
+
+
+def test_save_time_leveling_through_soundbite_save_stays_fast(tmp_path, monkeypatch):
+    import time
+    import soundbite
+    lib = make_library(tmp_path / "lib", [("v", "a", -6, 3)])
+    plan = write_plan(tmp_path / "plan.json", {"openai/v": 6.0})
+    sine(tmp_path / "in.mp3", -6, 3)
+    monkeypatch.setenv("SOUNDBITE_DIR", str(lib))
+    monkeypatch.setenv("SOUNDBITE_PLAN", str(plan))
+    raw = (tmp_path / "in.mp3").read_bytes()
+    start = time.time()
+    path = soundbite.save("a brand new line", "openai", "v", raw, "tts-1")
+    took = time.time() - start
+    print(f"save + level of a 3 s clip: {took:.2f}s")
+    assert path.read_bytes() != raw and took < 2.0
