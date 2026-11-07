@@ -26,3 +26,19 @@ lyrika: push or delete needs your yes
 lyrika: cut is ready to play
 lyrika: Resolve bridge is not running
 lyrika: dev needs a decision
+# added 2026-11-07 (Bryan ticked all 15 in the lyrika tab; confirmed in the speak-app tab)
+lyrika: content saved in the Studio
+lyrika: checkpoint saved
+lyrika: save failed, check the desk
+lyrika: we need to send that to Studio dev
+lyrika: sent to Studio dev
+lyrika: Studio dev has reported
+lyrika: Studio lead has reported
+lyrika: I think that will work
+lyrika: that looks right to me
+lyrika: good plan, let's do it
+lyrika: that worked
+lyrika: I'm not so sure about that
+lyrika: that could go wrong
+lyrika: let me check that first
+lyrika: that did not work
