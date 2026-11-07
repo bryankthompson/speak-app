@@ -22,6 +22,7 @@ import json
 import os
 import statistics
 import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -42,6 +43,8 @@ MIN_MEDIAN_SECONDS = 1.0
 MIN_GAIN_DB = 0.5
 MAX_SPREAD_DB = 3.0
 DURATION_TOLERANCE_S = 0.05
+STALE_TEMPDIR_S = 3600
+TEMPDIR_PREFIX = "level-"
 APPLIED_LOG = "levels-applied.jsonl"
 AOC_SRC = Path("~/audio-observation-core/src").expanduser()
 DEPS = ("numpy", "scipy", "soxr", "soundfile")
@@ -113,12 +116,12 @@ def probe(path: Path, entries: str) -> dict:
 
 
 def measure_clip(args):
-    """Worker: (key, path, prefilter) -> dict with lufs, peak and duration, or {"error": ...}. Never raises.
+    """Worker: (key, path, prefilter, tmpdir) -> dict with lufs, peak and duration, or {"error": ...}. Never raises.
 
     With a prefilter the clip is first rendered through it to a temp wav, so the reading is of the
     compressed signal; without one the file is measured as it is.
     """
-    key, path, prefilter = args
+    key, path, prefilter, tmpdir = args
     rendered = None
     try:
         if importlib.util.find_spec("audio_observation") is None:
@@ -128,7 +131,7 @@ def measure_clip(args):
         seconds = float(probe(Path(path), "duration")["duration"])
         target = path
         if prefilter:
-            fd, rendered = tempfile.mkstemp(suffix=".wav")
+            fd, rendered = tempfile.mkstemp(suffix=".wav", dir=tmpdir)
             os.close(fd)
             subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", path, "-af", prefilter,
                             "-c:a", "pcm_f32le", rendered], check=True)
@@ -149,13 +152,24 @@ def measure_clip(args):
             Path(rendered).unlink(missing_ok=True)
 
 
+def clean_stale_tempdirs() -> None:
+    """Delete level-* temp dirs a killed measure left in the temp root more than an hour ago."""
+    root = Path(tempfile.gettempdir())
+    for d in root.glob(f"{TEMPDIR_PREFIX}*"):
+        if d.is_dir() and time.time() - d.stat().st_mtime > STALE_TEMPDIR_S:
+            shutil.rmtree(d, ignore_errors=True)
+
+
 def measure_all(lib: Path, manifest: dict, only_keys=None, prefilter=None):
     """Measure every non-sfx clip. Returns (results by key, failures list)."""
-    jobs = [(k, str(lib / e["file"]), prefilter) for k, e in manifest.items()
-            if e["provider"] != "sfx" and (only_keys is None or k in only_keys)]
+    clean_stale_tempdirs()
     results, failures = {}, []
     start = time.time()
-    with ProcessPoolExecutor(max_workers=min(8, os.cpu_count() or 2)) as pool:
+    # one temp dir per run holds every rendered wav, so a killed run leaves one dir for the next run to sweep
+    with tempfile.TemporaryDirectory(prefix=TEMPDIR_PREFIX) as tmpdir, \
+            ProcessPoolExecutor(max_workers=min(8, os.cpu_count() or 2)) as pool:
+        jobs = [(k, str(lib / e["file"]), prefilter, tmpdir) for k, e in manifest.items()
+                if e["provider"] != "sfx" and (only_keys is None or k in only_keys)]
         for i, res in enumerate(pool.map(measure_clip, jobs, chunksize=8), 1):
             if "error" in res:
                 failures.append((manifest[res["key"]]["file"], res["error"]))
@@ -235,7 +249,7 @@ def cmd_measure(args) -> int:
                 "sfx_skipped": sfx, "voices": voices}
         plan["plan_hash"] = plan_hash(plan)
         write_json_atomic(out, plan)
-        out.with_name("table.txt").write_text(table + "\n")
+        out.with_name(f"{out.stem}.table.txt").write_text(table + "\n")
     return report_failures(failures)
 
 
@@ -291,7 +305,8 @@ def journal_append(lib: Path, entry: dict) -> None:
 
 def sync_manifest(lib: Path, plan_id: str) -> None:
     """Set manifest bytes from the journal (the record of what was replaced), under the soundbite lock."""
-    sizes = {j["key"]: j["bytes"] for j in read_journal(lib) if j["plan"] == plan_id}
+    sizes = {j["key"]: j["bytes"] for j in read_journal(lib)
+             if j["plan"] == plan_id and j.get("state", "done") == "done"}
     with manifest_locked(lib):
         fresh = load_manifest(lib)
         changed = False
@@ -301,6 +316,24 @@ def sync_manifest(lib: Path, plan_id: str) -> None:
                 changed = True
         if changed:
             write_json_atomic(lib / "manifest.json", fresh)
+
+
+def file_sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def recover_pending(lib: Path, plan_id: str, journal: list) -> list:
+    """Write-ahead recovery: a pending line with no done line means the run died around os.replace.
+    If the file no longer matches old_sha256 the replace happened, so record done (never re-level it)."""
+    done = {j["key"] for j in journal if j.get("state", "done") == "done"}
+    latest = {j["key"]: j for j in journal if j.get("state") == "pending" and j["key"] not in done}
+    for key, pend in latest.items():
+        path = lib / pend["file"]
+        if file_sha256(path) != pend["old_sha256"]:
+            journal_append(lib, {"state": "done", "key": key, "file": pend["file"], "plan": plan_id,
+                                 "gain_db": pend["gain_db"], "bytes": path.stat().st_size})
+            print(f"recovered {pend['file']}: replaced before the crash, marked done", file=sys.stderr)
+    return read_journal(lib)
 
 
 def restore_command(lib: Path) -> str:
@@ -332,7 +365,9 @@ def cmd_apply(args) -> int:
         print(f"refusing to apply: {lib / APPLIED_LOG} holds clips leveled by another plan (different "
               f"target, chain or gains). Restore the library first:\n  {restore_command(lib)}", file=sys.stderr)
         return 1
-    done = {j["key"] for j in journal}
+    if journal and not args.dry_run:
+        journal = recover_pending(lib, plan_id, journal)
+    done = {j["key"] for j in journal if j.get("state", "done") == "done"}
     manifest = load_manifest(lib)
     todo = {}
     for vid, v in sorted(plan["voices"].items()):
@@ -346,9 +381,9 @@ def cmd_apply(args) -> int:
         print("nothing to apply: every voice is within 0.5 dB or already leveled by this plan")
         return 0
     if not args.dry_run:
-        owned = {APPLIED_LOG, "manifest.json"} | {manifest[k]["file"] for k in done if k in manifest}
+        owned = {APPLIED_LOG, "manifest.json"} | {j["file"] for j in journal}
         dirty = git_dirty_paths(lib) - {".manifest.lock"}
-        if dirty - (owned if done else set()):
+        if dirty - (owned if journal else set()):
             print(f"refusing to apply: {lib} has uncommitted changes (commit or stash them first)",
                   file=sys.stderr)
             return 1
@@ -362,10 +397,12 @@ def cmd_apply(args) -> int:
                 continue
             for key in keys:
                 path = lib / manifest[key]["file"]
+                journal_append(lib, {"state": "pending", "key": key, "file": manifest[key]["file"],
+                                     "plan": plan_id, "gain_db": gain, "old_sha256": file_sha256(path)})
                 tmp = reencode(path, gain, chain)
                 os.replace(tmp, path)
-                journal_append(lib, {"key": key, "file": manifest[key]["file"], "plan": plan_id,
-                                     "gain_db": gain, "bytes": path.stat().st_size})
+                journal_append(lib, {"state": "done", "key": key, "file": manifest[key]["file"],
+                                     "plan": plan_id, "gain_db": gain, "bytes": path.stat().st_size})
             sync_manifest(lib, plan_id)
     except BaseException:
         print("apply stopped part-way: rerun the same command to resume where it left off", file=sys.stderr)

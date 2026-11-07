@@ -55,6 +55,10 @@ def test_gain_has_no_peak_cap_and_limiting_is_estimated():
     assert level_clips.limiting_estimate([-10, -4], 8.0) == (1, 5.0)  # -4 + 8 = +4 dBFS, 5 dB over -1
 
 
+def journal_lines(lib):
+    return [json.loads(line) for line in (lib / "levels-applied.jsonl").read_text().splitlines()]
+
+
 def write_plan(path, gains, target=-18):
     plan = {"target": target, "chain": level_clips.CHAIN_DEFAULTS,
             "voices": {v: {"gain_db": g} for v, g in gains.items()}}
@@ -82,7 +86,7 @@ def test_short_clip_excluded_from_median(tmp_path):
     plan = plan_for(lib, tmp_path)
     med = json.loads(plan.read_text())["voices"]["openai/v"]["median_lufs"]
     pre = level_clips.chain_prefilter(level_clips.CHAIN_DEFAULTS)
-    alone = level_clips.measure_clip(("k", str(lib / "openai/v/long.mp3"), pre))["lufs"]
+    alone = level_clips.measure_clip(("k", str(lib / "openai/v/long.mp3"), pre, None))["lufs"]
     assert med == pytest.approx(alone, abs=0.05)  # the 2 s clip alone; the loud 0.5 s clip is ignored
 
 
@@ -140,7 +144,7 @@ def test_crash_midway_resumes_without_leveling_twice(tmp_path, monkeypatch):
     monkeypatch.setattr(level_clips, "reencode", flaky)
     with pytest.raises(RuntimeError):
         level_clips.main(["apply", str(plan), "--library", str(lib)])
-    first_two = [json.loads(line)["file"] for line in (lib / "levels-applied.jsonl").read_text().splitlines()]
+    first_two = [j["file"] for j in journal_lines(lib) if j["state"] == "done"]
     assert len(first_two) == 2
     # manifest bytes already match the two replaced files even though the run died (finally block)
     man = json.loads((lib / "manifest.json").read_text())
@@ -151,7 +155,7 @@ def test_crash_midway_resumes_without_leveling_twice(tmp_path, monkeypatch):
     assert len(calls) == 2 and not set(calls) & {Path(f).name for f in first_two}  # no clip leveled twice
     man = json.loads((lib / "manifest.json").read_text())
     assert all(e["bytes"] == (lib / e["file"]).stat().st_size for e in man.values())
-    assert len((lib / "levels-applied.jsonl").read_text().splitlines()) == 4
+    assert len([j for j in journal_lines(lib) if j["state"] == "done"]) == 4
 
 
 def test_stale_plan_refused_with_restore_command(tmp_path):
@@ -178,6 +182,60 @@ def test_compression_lowers_peak_to_loudness_on_a_burst(tmp_path):
     res = {}
     for name, pre in (("raw", None), ("comp", level_clips.chain_prefilter({**level_clips.CHAIN_DEFAULTS, "ratio": 8, "threshold_db": -30, "attack_ms": 1}))):
         pytest.importorskip("numpy")
-        res[name] = level_clips.measure_clip(("k", str(src), pre))
+        res[name] = level_clips.measure_clip(("k", str(src), pre, None))
     crest = {n: r["peak"] - r["lufs"] for n, r in res.items()}
     assert crest["comp"] < crest["raw"] - 1.0, crest
+
+
+def test_crash_between_replace_and_done_levels_exactly_once(tmp_path, monkeypatch):
+    clips = [("v", "a", -6, 2)]
+    ref = make_library(tmp_path / "ref", clips)
+    lib = make_library(tmp_path / "lib", clips)
+    plan = write_plan(tmp_path / "plan.json", {"openai/v": 6.0})
+    assert level_clips.main(["apply", str(plan), "--library", str(ref)]) == 0
+
+    real = level_clips.journal_append
+
+    def die_on_done(lib_, entry):
+        if entry["state"] == "done":
+            raise RuntimeError("killed after os.replace")
+        real(lib_, entry)
+
+    monkeypatch.setattr(level_clips, "journal_append", die_on_done)
+    with pytest.raises(RuntimeError):
+        level_clips.main(["apply", str(plan), "--library", str(lib)])
+    monkeypatch.setattr(level_clips, "journal_append", real)
+    assert [j["state"] for j in journal_lines(lib)] == ["pending"]
+    assert level_clips.main(["apply", str(plan), "--library", str(lib)]) == 0
+    # resume saw the file already replaced: marked done, not re-leveled (a second pass would differ)
+    assert (lib / "openai/v/a.mp3").read_bytes() == (ref / "openai/v/a.mp3").read_bytes()
+    man = json.loads((lib / "manifest.json").read_text())
+    assert man["k0"]["bytes"] == (lib / "openai/v/a.mp3").stat().st_size
+    assert [j["state"] for j in journal_lines(lib)] == ["pending", "done"]
+
+
+def test_crash_before_replace_redoes_the_clip(tmp_path, monkeypatch):
+    lib = make_library(tmp_path / "lib", [("v", "a", -6, 2)])
+    plan = write_plan(tmp_path / "plan.json", {"openai/v": 6.0})
+    real = level_clips.reencode
+    monkeypatch.setattr(level_clips, "reencode", lambda *a: (_ for _ in ()).throw(RuntimeError("boom")))
+    with pytest.raises(RuntimeError):
+        level_clips.main(["apply", str(plan), "--library", str(lib)])
+    monkeypatch.setattr(level_clips, "reencode", real)
+    assert level_clips.main(["apply", str(plan), "--library", str(lib)]) == 0
+    assert [j["state"] for j in journal_lines(lib)] == ["pending", "pending", "done"]
+
+
+def test_measure_table_is_named_after_the_plan(lib, tmp_path):
+    plan_for(lib, tmp_path)
+    assert (tmp_path / "plan.table.txt").exists() and not (tmp_path / "table.txt").exists()
+
+
+def test_stale_level_tempdirs_are_swept(tmp_path, monkeypatch):
+    import os, time
+    monkeypatch.setattr(level_clips.tempfile, "tempdir", str(tmp_path))
+    old, fresh = tmp_path / "level-old", tmp_path / "level-fresh"
+    old.mkdir(); fresh.mkdir()
+    os.utime(old, (time.time() - 7200,) * 2)
+    level_clips.clean_stale_tempdirs()
+    assert not old.exists() and fresh.exists()
