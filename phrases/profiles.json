@@ -239,7 +239,7 @@
       "profile": "shimmer"
     },
     "lyrika": {
-      "profile": "nova"
+      "profile": "arabella"
     },
     "model-evals": {
       "profile": "alloy"
@@ -292,7 +292,7 @@
       "say": "studio 2"
     },
     "lyrika-apps": {
-      "profile": "nova",
+      "profile": "arabella",
       "say": "lyrika"
     },
     "vision-tracking-core": {
