@@ -122,7 +122,9 @@ def run_lines(path, provider, dry_run, call=synth):
         if status != 200:
             print(f"STOP on first error: HTTP {status} {body}\nrecorded {done} before stopping", file=sys.stderr)
             return 2
-        soundbite.save(t, provider, entry["voice"], body, model, 1.0)
+        if soundbite.save(t, provider, entry["voice"], body, model, 1.0) is None:
+            print(f"STOP: could not store the clip for {t}\nrecorded {done} before stopping", file=sys.stderr)
+            return 2
         done += 1
     print(f"recorded {done} lines", file=sys.stderr)
     return 1 if bad else 0

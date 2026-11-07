@@ -98,3 +98,11 @@ def test_elevenlabs_quota_error_stops_the_run(repo):
         return 402, "quota"
     assert record.run_lines(_file(repo, f"{name}: one", f"{name}: two"), "elevenlabs", False, call) == 2
     assert len(calls) == 1
+
+
+def test_failed_save_stops_the_run(repo, monkeypatch):
+    name, _ = _openai_cast()
+    monkeypatch.setattr(record.soundbite, "save", lambda *a, **k: None)
+    calls = []
+    assert record.run_lines(_file(repo, f"{name}: one", f"{name}: two"), "openai", False, fake(calls)) == 2
+    assert len(calls) == 1
