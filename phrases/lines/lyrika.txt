@@ -14,3 +14,15 @@ lyrika: desk is blocked, needs a decision
 lyrika: desk has a question for you
 lyrika: provider timed out, check the desk
 lyrika: render finished in Resolve
+# added 2026-11-07 (approved by Bryan, relayed by lyrika-cockpit and confirmed in the speak-app tab)
+lyrika: I have a question for you
+lyrika: provider needs you to sign in
+lyrika: desks need to save checkpoints
+lyrika: ready to shut down
+lyrika: desks are restarted and ready
+lyrika: I need your budget first
+lyrika: pick the clips to redo
+lyrika: push or delete needs your yes
+lyrika: cut is ready to play
+lyrika: Resolve bridge is not running
+lyrika: dev needs a decision

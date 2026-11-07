@@ -140,7 +140,10 @@ voice gets its gain with `tts/level_clips.py add-voice provider/voice`.
 
 Cockpit-specific lines live in `phrases/lines/NAME.txt` (rows of `name: text`) and are recorded with
 `phrases/record.py --provider P --lines FILE`. `lyrika.txt` holds lyrika's 15 Studio lines (approval gates and
-attention alerts), recorded once in the arabella voice.
+attention alerts, 26 in all), recorded once in the arabella voice. The desks lyrika supervises are cast to the same
+voice (`candybone`, `candybone two`, `candybone three`, `nosunshine`, `creative candybone`), so a desk line is
+`speak "candybone two: is blocked"`: the name clip plus a menu clause, from stored clips and free. A desk name with
+free text is a whole paid line.
 
 ## Sound effects
 
