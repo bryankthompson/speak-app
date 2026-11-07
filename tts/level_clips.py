@@ -447,7 +447,7 @@ def cmd_apply(args) -> int:
         print("nothing to apply: every voice is within 0.5 dB or already leveled by this plan")
         return 0
     if not args.dry_run:
-        owned = {APPLIED_LOG, "manifest.json"} | {j["file"] for j in journal}
+        owned = {APPLIED_LOG, "manifest.json"} | {j["file"] for j in read_journal(lib, peakfix=True) if "file" in j}
         dirty = git_dirty_paths(lib) - {".manifest.lock"}
         if dirty - (owned if journal else set()):
             print(dirty_message(lib), file=sys.stderr)
@@ -578,11 +578,12 @@ def cmd_fix_peaks(args) -> int:
                                  "peak_after": round(after, 2), "atten_db": atten})
             print(f"cut {entry['file']}: {before:+.2f} -> {after:+.2f} dBTP ({atten} dB)")
     finally:
-        if over and not args.dry_run:
+        if not args.dry_run:
+            synced = set(over) | {j["key"] for j in read_journal(lib, peakfix=True) if j.get("state") == "peakfix"}
             with manifest_locked(lib):
                 fresh = load_manifest(lib)
-                for key in over:
-                    if key in fresh:
+                for key in synced:
+                    if key in fresh and (lib / fresh[key]["file"]).exists():
                         fresh[key]["bytes"] = (lib / fresh[key]["file"]).stat().st_size
                 write_json_atomic(lib / "manifest.json", fresh)
     for path, peak in still_over:
