@@ -118,6 +118,23 @@ Append it to the end of `clauses` in `phrases/casting.json`, then run the dry-ru
 changed spelling orphans every stored clip of it, and cockpit briefs that use the old spelling fall back to paid,
 whole-line speech. The spellings are a contract with the cockpit lead brief.
 
+## When new audio is generated (and what it costs)
+
+Only three things ever create audio; everything else plays a stored clip for free.
+
+| What you do | New audio? | Cost | Levelled? |
+|---|---|---|---|
+| `speak "name: clause"` with a menu clause whose clips are stored | no, plays stored clips | free | yes (the library is levelled) |
+| `speak "name: any other text"`, or a menu clause not yet recorded for that voice | yes, the whole line is spoken once by that voice's provider and saved | paid, once per distinct line; free next time | no, not until the next level run |
+| `phrases/record.py` (new voice, new clause) or `phrases/sfx.py` | yes, on purpose | paid; run `--dry-run` first | no, not until the next level run |
+
+So prefer menu clauses in cockpit briefs: they are free and already levelled. Free text is fine for a one-off, but each
+new distinct line costs a call and arrives at the provider's own loudness, quieter or louder than the rest.
+
+After recording new clips (or after free-text lines have piled up), level them: commit the library, then rerun
+`tts/level_clips.py apply` with the saved plan (`docs/LEVELING.md`, "Leveling new clips"). A brand-new voice cannot
+be levelled that way yet.
+
 ## Sound effects
 
 `phrases/sfx.py` makes eight short state sounds (`done`, `merged`, `question`, `needs-you`, `blocked`, `alert`,
