@@ -133,6 +133,7 @@ yet; they are stored for callers that want an earcon.
   `/voice-health` plugin command counts them. Restore from the backup rather than re-record.
 - Files on disk but not in the manifest: `phrases/record.py --provider P --reindex` re-adds them, no API call.
 - Unknown names: `~/.cache/speak-app/voice_misses.log` (time, name per line). Assign each, or ignore it.
+- Loudness across voices: docs/LEVELING.md (`python3 tts/level_clips.py run` levels the library and verifies it).
 
 ## Gallery (local only)
 

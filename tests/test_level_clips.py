@@ -239,3 +239,114 @@ def test_stale_level_tempdirs_are_swept(tmp_path, monkeypatch):
     os.utime(old, (time.time() - 7200,) * 2)
     level_clips.clean_stale_tempdirs()
     assert not old.exists() and fresh.exists()
+
+
+def noise_library(root, amplitude=0.5):
+    """White-noise clip: after the chain, libmp3lame's re-encode overshoots the -1 dBFS limiter ceiling."""
+    rel = "openai/v/n.mp3"
+    (root / "openai/v").mkdir(parents=True)
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i",
+                    f"anoisesrc=color=white:amplitude={amplitude}:duration=1:sample_rate=44100:seed=1",
+                    "-c:a", "libmp3lame", "-b:a", "64k", str(root / rel)], check=True)
+    (root / "manifest.json").write_text(json.dumps({"k0": {"provider": "openai", "voice": "v", "file": rel,
+                                                           "text": "n", "bytes": (root / rel).stat().st_size}}))
+    for cmd in (["init", "-q"], ["add", "-A"], ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "x"]):
+        subprocess.run(["git", "-C", str(root), *cmd], check=True)
+    return root
+
+
+def test_peak_guard_pulls_an_overshooting_clip_under_the_guard(tmp_path):
+    lib = noise_library(tmp_path / "lib")
+    src = lib / "openai/v/n.mp3"
+    unguarded = level_clips.reencode(src, 20.0, level_clips.CHAIN_DEFAULTS)
+    assert level_clips.decoded_peak_dbfs(unguarded) > level_clips.PEAK_GUARD_DBFS  # the failure the guard exists for
+    unguarded.unlink()
+    plan = write_plan(tmp_path / "plan.json", {"openai/v": 20.0})
+    assert run("apply", plan, "--library", lib).returncode == 0
+    assert level_clips.decoded_peak_dbfs(src) <= level_clips.PEAK_GUARD_DBFS
+    done = [j for j in journal_lines(lib) if j["state"] == "done"][0]
+    assert done["extra_atten_db"] > 0 and done["peak_dbfs"] <= level_clips.PEAK_GUARD_DBFS
+    assert not list(lib.rglob(".level-*"))
+
+
+def test_peak_guard_leaves_a_clip_that_needs_none(tmp_path):
+    lib = make_library(tmp_path / "lib", [("v", "a", -6, 2)])
+    assert run("apply", write_plan(tmp_path / "plan.json", {"openai/v": 6.0}), "--library", lib).returncode == 0
+    done = [j for j in journal_lines(lib) if j["state"] == "done"][0]
+    assert done["extra_atten_db"] == 0 and done["peak_dbfs"] <= level_clips.PEAK_GUARD_DBFS
+
+
+def test_peak_guard_fails_loudly_naming_the_clip(tmp_path, monkeypatch):
+    lib = noise_library(tmp_path / "lib")
+    monkeypatch.setattr(level_clips, "decoded_peak_dbfs", lambda p: 1.0)
+    with pytest.raises(RuntimeError, match="n.mp3.*still above"):
+        level_clips.main(["apply", str(write_plan(tmp_path / "plan.json", {"openai/v": 20.0})), "--library", str(lib)])
+    assert not list(lib.rglob(".level-*"))
+
+
+def test_resumed_run_still_guards_the_peak(tmp_path, monkeypatch):
+    lib = noise_library(tmp_path / "lib")
+    plan = write_plan(tmp_path / "plan.json", {"openai/v": 20.0})
+    real = level_clips.reencode_guarded
+    monkeypatch.setattr(level_clips, "reencode_guarded", lambda *a: (_ for _ in ()).throw(RuntimeError("boom")))
+    with pytest.raises(RuntimeError):
+        level_clips.main(["apply", str(plan), "--library", str(lib)])
+    monkeypatch.setattr(level_clips, "reencode_guarded", real)
+    assert level_clips.main(["apply", str(plan), "--library", str(lib)]) == 0
+    assert level_clips.decoded_peak_dbfs(lib / "openai/v/n.mp3") <= level_clips.PEAK_GUARD_DBFS
+
+
+def test_measure_refuses_an_already_leveled_library(lib, tmp_path):
+    plan = plan_for(lib, tmp_path)
+    assert run("apply", plan, "--library", lib).returncode == 0
+    res = run("measure", "--library", lib, "--out", tmp_path / "again.json")
+    h = json.loads(plan.read_text())["plan_hash"]
+    assert res.returncode == 1 and "levels-applied.jsonl" in res.stderr and h in res.stderr
+    assert not (tmp_path / "again.json").exists()
+    forced = run("measure", "--library", lib, "--out", tmp_path / "again.json", "--force-remeasure")
+    assert forced.returncode == 0 and "WARNING" in forced.stderr and "originals" in forced.stderr
+
+
+def test_run_levels_and_verifies(lib, tmp_path):
+    plan = tmp_path / "p.json"
+    res = run("run", "--library", lib, "--out", plan)
+    assert res.returncode == 0, res.stdout + res.stderr
+    for step in ("measure", "apply", "verify"):
+        assert f": {step} ==" in res.stdout
+    assert plan.exists() and (lib / "levels-applied.jsonl").exists()
+
+
+def test_run_dry_run_changes_nothing(lib, tmp_path):
+    res = run("run", "--library", lib, "--out", tmp_path / "p.json", "--dry-run")
+    assert res.returncode == 0 and "would level" in res.stdout and "verify" not in res.stdout
+    assert not (lib / "levels-applied.jsonl").exists()
+
+
+def test_run_refuses_dirty_tree_before_measuring(lib, tmp_path):
+    (lib / "stray.txt").write_text("x")
+    res = run("run", "--library", lib, "--out", tmp_path / "p.json")
+    assert res.returncode == 1 and "uncommitted" in res.stderr and "step" not in res.stdout
+    assert not (tmp_path / "p.json").exists()
+
+
+def test_new_clip_of_a_leveled_voice_is_leveled_by_rerunning_the_same_plan(tmp_path):
+    lib = make_library(tmp_path / "lib", [("v", "a", -6, 2)])
+    plan = write_plan(tmp_path / "plan.json", {"openai/v": 6.0})
+    assert run("apply", plan, "--library", lib).returncode == 0
+    ref = make_library(tmp_path / "ref", [("v", "a", -6, 2)])
+    assert run("apply", plan, "--library", ref).returncode == 0
+    # a new clip is recorded and the library committed (journal included)
+    sine(lib / "openai/v/new.mp3", -6, 2)
+    man = json.loads((lib / "manifest.json").read_text())
+    man["k9"] = {"provider": "openai", "voice": "v", "file": "openai/v/new.mp3", "text": "new",
+                 "bytes": (lib / "openai/v/new.mp3").stat().st_size}
+    (lib / "manifest.json").write_text(json.dumps(man))
+    fresh = (lib / "openai/v/new.mp3").read_bytes()
+    for cmd in (["add", "-A"], ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "new"]):
+        subprocess.run(["git", "-C", str(lib), *cmd], check=True)
+    old_a = (lib / "openai/v/a.mp3").read_bytes()
+    res = run("apply", plan, "--library", lib)
+    assert res.returncode == 0 and "1 clips" in res.stdout, res.stdout + res.stderr
+    assert (lib / "openai/v/new.mp3").read_bytes() != fresh
+    assert (lib / "openai/v/a.mp3").read_bytes() == old_a  # the already-leveled clip is not touched again
+    assert json.loads((lib / "manifest.json").read_text())["k9"]["bytes"] == (lib / "openai/v/new.mp3").stat().st_size

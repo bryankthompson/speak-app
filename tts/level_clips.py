@@ -4,6 +4,7 @@
     python3 tts/level_clips.py measure [--library DIR] [--out plan.json] [--target -18]
     python3 tts/level_clips.py apply PLAN [--library DIR] [--dry-run]
     python3 tts/level_clips.py verify [--library DIR] [--target -18] [--sample N]
+    python3 tts/level_clips.py run [--library DIR] [--target -18] [--out PLAN] [--dry-run]
 
 measure is read-only. apply re-encodes clips in place (same path, same manifest key) and
 journals every clip it replaced in <library>/levels-applied.jsonl, so a crashed run resumes by rerunning.
@@ -20,6 +21,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import re
 import statistics
 import shlex
 import shutil
@@ -37,6 +39,9 @@ CHAIN_DEFAULTS = {"highpass_hz": 80, "threshold_db": -24.0, "ratio": 2.5, "attac
                   "release_ms": 120, "makeup": 1, "limit": LIMIT_LINEAR}
 PEAK_CEILING_DBFS = -1.0
 VERIFY_MAX_PEAK_DBTP = -0.5
+PEAK_GUARD_DBFS = -0.8  # apply re-encodes a clip with extra attenuation when its decoded peak is above this
+PEAK_GUARD_TRIES = 3
+PEAK_GUARD_MARGIN_DB = 0.3
 FLAG_LIMITED_FRACTION = 0.10
 FLAG_REDUCTION_DB = 6.0
 MIN_MEDIAN_SECONDS = 1.0
@@ -65,9 +70,10 @@ def chain_prefilter(chain: dict) -> str:
             f":makeup={chain['makeup']}")
 
 
-def chain_filter(chain: dict, gain_db: float) -> str:
-    """The full per-clip chain apply runs in one ffmpeg pass."""
-    return f"{chain_prefilter(chain)},volume={gain_db}dB,alimiter=limit={chain['limit']}:attack=5:release=50:level=0"
+def chain_filter(chain: dict, gain_db: float, extra_atten_db: float = 0.0) -> str:
+    """The full per-clip chain apply runs in one ffmpeg pass. extra_atten_db comes after the limiter."""
+    out = f"{chain_prefilter(chain)},volume={gain_db}dB,alimiter=limit={chain['limit']}:attack=5:release=50:level=0"
+    return f"{out},volume=-{extra_atten_db}dB" if extra_atten_db else out
 
 
 def plan_hash(plan: dict) -> str:
@@ -222,6 +228,17 @@ def format_table(voices: dict) -> str:
 
 def cmd_measure(args) -> int:
     lib = Path(args.library)
+    done = [j for j in read_journal(lib) if j.get("state", "done") == "done"]
+    if done:
+        hashes = ", ".join(sorted({j["plan"] for j in done}))
+        msg = (f"{lib / APPLIED_LOG} has {len(done)} done line(s) (plan {hashes}): this library is already leveled, "
+               f"and measuring it would plan gains near 0 while apply compresses the clips again")
+        if not args.force_remeasure:
+            print(f"refusing to measure: {msg}. Restore the originals first, or pass --force-remeasure.",
+                  file=sys.stderr)
+            return 1
+        print(f"WARNING: {msg}. --force-remeasure: the plan is only valid if the originals are restored "
+              f"before apply:\n  {restore_command(lib)}", file=sys.stderr)
     manifest = load_manifest(lib)
     sfx = sorted(e["file"] for e in manifest.values() if e["provider"] == "sfx")
     chain = {**CHAIN_DEFAULTS, "ratio": args.ratio, "threshold_db": args.threshold_db}
@@ -261,12 +278,41 @@ def git_dirty_paths(lib: Path) -> set:
     return {e[3:] for e in out.stdout.split("\0") if e and not Path(e[3:]).name.startswith(".level-")}
 
 
-def reencode(src: Path, gain_db: float, chain: dict) -> Path:
+def decoded_peak_dbfs(path: Path) -> float:
+    """Sample peak of the decoded file (float decode, so overshoot above 0 dBFS is not clipped away)."""
+    out = subprocess.run(["ffmpeg", "-v", "info", "-nostats", "-i", str(path), "-af", "astats=measure_perchannel=none",
+                          "-f", "null", "-"], capture_output=True, text=True, check=True)
+    peaks = [float(m) for m in re.findall(r"Peak level dB:\s*(-?[\d.]+|-inf)", out.stderr)]
+    if not peaks:
+        raise RuntimeError(f"{path}: ffmpeg astats gave no peak level")
+    return peaks[-1]
+
+
+def reencode_guarded(src: Path, gain_db: float, chain: dict):
+    """(temp file, extra_atten_db, peak_dbfs). libmp3lame overshoots the limiter ceiling, so the decoded
+    temp file is measured and, above PEAK_GUARD_DBFS, redone from src with more attenuation after the limiter."""
+    extra = 0.0
+    for _ in range(PEAK_GUARD_TRIES + 1):
+        tmp = reencode(src, gain_db, chain, extra) if extra else reencode(src, gain_db, chain)
+        try:
+            peak = decoded_peak_dbfs(tmp)
+        except BaseException:
+            tmp.unlink(missing_ok=True)
+            raise
+        if peak <= PEAK_GUARD_DBFS:
+            return tmp, extra, peak
+        tmp.unlink(missing_ok=True)
+        extra = round(extra + peak - PEAK_GUARD_DBFS + PEAK_GUARD_MARGIN_DB, 2)
+    raise RuntimeError(f"{src}: peak {peak:.2f} dBFS is still above {PEAK_GUARD_DBFS} after "
+                       f"{PEAK_GUARD_TRIES} extra-attenuation tries")
+
+
+def reencode(src: Path, gain_db: float, chain: dict, extra_atten_db: float = 0.0) -> Path:
     """Chain-processed copy next to src (temp file), verified to decode with the same duration."""
     bitrate = probe(src, "bit_rate,duration")
     tmp = src.with_name(f".level-{src.name}")
     try:
-        subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(src), "-af", chain_filter(chain, gain_db),
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(src), "-af", chain_filter(chain, gain_db, extra_atten_db),
                         "-c:a", "libmp3lame", "-b:a", str(bitrate["bit_rate"]), "-f", "mp3", str(tmp)],
                        check=True)
         new = probe(tmp, "duration")
@@ -344,6 +390,10 @@ def restore_command(lib: Path) -> str:
     return f"{files} | xargs -d '\\n' {git} checkout -- && {git} checkout -- manifest.json && rm {journal}"
 
 
+def dirty_message(lib: Path) -> str:
+    return f"refusing to apply: {lib} has uncommitted changes (commit or stash them first)"
+
+
 def cmd_apply(args) -> int:
     lib = Path(args.library)
     plan = json.loads(Path(args.plan).read_text())
@@ -384,8 +434,7 @@ def cmd_apply(args) -> int:
         owned = {APPLIED_LOG, "manifest.json"} | {j["file"] for j in journal}
         dirty = git_dirty_paths(lib) - {".manifest.lock"}
         if dirty - (owned if journal else set()):
-            print(f"refusing to apply: {lib} has uncommitted changes (commit or stash them first)",
-                  file=sys.stderr)
+            print(dirty_message(lib), file=sys.stderr)
             return 1
         if committed:
             (lib / APPLIED_LOG).write_text("")
@@ -399,10 +448,11 @@ def cmd_apply(args) -> int:
                 path = lib / manifest[key]["file"]
                 journal_append(lib, {"state": "pending", "key": key, "file": manifest[key]["file"],
                                      "plan": plan_id, "gain_db": gain, "old_sha256": file_sha256(path)})
-                tmp = reencode(path, gain, chain)
+                tmp, extra, peak = reencode_guarded(path, gain, chain)
                 os.replace(tmp, path)
                 journal_append(lib, {"state": "done", "key": key, "file": manifest[key]["file"],
-                                     "plan": plan_id, "gain_db": gain, "bytes": path.stat().st_size})
+                                     "plan": plan_id, "gain_db": gain, "bytes": path.stat().st_size,
+                                     "extra_atten_db": extra, "peak_dbfs": round(peak, 2)})
             sync_manifest(lib, plan_id)
     except BaseException:
         print("apply stopped part-way: rerun the same command to resume where it left off", file=sys.stderr)
@@ -441,6 +491,39 @@ def cmd_verify(args) -> int:
     return 1 if report_failures(failures) or spread > MAX_SPREAD_DB or top > VERIFY_MAX_PEAK_DBTP else 0
 
 
+def cmd_run(args) -> int:
+    """measure -> table -> apply -> verify, stopping at the first step that fails."""
+    lib = Path(args.library)
+    out = args.out or str(Path("~/.cache/speak-app/level-plan.json").expanduser())
+    resuming = False
+    if not args.dry_run and (lib / APPLIED_LOG).exists() and Path(out).exists():
+        try:  # a journal written by the plan at `out` means a crashed run: skip measure, apply resumes it
+            resuming = any(j["plan"] == json.loads(Path(out).read_text()).get("plan_hash") for j in read_journal(lib))
+        except (OSError, ValueError, KeyError):
+            resuming = False
+    if not args.dry_run and not resuming and git_dirty_paths(lib) - {".manifest.lock"}:
+        print(dirty_message(lib), file=sys.stderr)
+        return 1
+    steps = [("measure", lambda: cmd_measure(argparse.Namespace(
+                 library=args.library, target=args.target, ratio=CHAIN_DEFAULTS["ratio"],
+                 threshold_db=CHAIN_DEFAULTS["threshold_db"], out=out, force_remeasure=False))),
+             ("apply --dry-run" if args.dry_run else "apply",
+              lambda: cmd_apply(argparse.Namespace(plan=out, library=args.library, dry_run=args.dry_run)))]
+    if resuming:
+        print(f"resuming: journal {lib / APPLIED_LOG} matches plan {out}; skipping measure")
+        steps = steps[1:]
+    if not args.dry_run:
+        steps.append(("verify", lambda: cmd_verify(argparse.Namespace(library=args.library, target=args.target,
+                                                                      sample=0))))
+    for i, (name, step) in enumerate(steps, 1):
+        print(f"== step {i}/{len(steps)}: {name} ==", flush=True)
+        if step():
+            print(f"run stopped: step {name} failed", file=sys.stderr)
+            return 1
+    print(f"== run finished (plan {out}) ==")
+    return 0
+
+
 def ensure_deps(argv) -> None:
     if all(importlib.util.find_spec(m) for m in DEPS):
         return
@@ -452,25 +535,29 @@ def main(argv=None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     sub = p.add_subparsers(dest="cmd", required=True)
-    for name in ("measure", "apply", "verify"):
+    for name in ("measure", "apply", "verify", "run"):
         s = sub.add_parser(name)
-        if name == "apply":
-            s.add_argument("plan")
+        if name in ("apply", "run"):
+            if name == "apply":
+                s.add_argument("plan")
             s.add_argument("--dry-run", action="store_true")
-        else:
+        if name != "apply":
             s.add_argument("--target", type=float, default=DEFAULT_TARGET)
         if name == "measure":
             s.add_argument("--ratio", type=float, default=CHAIN_DEFAULTS["ratio"])
             s.add_argument("--threshold-db", type=float, default=CHAIN_DEFAULTS["threshold_db"])
         s.add_argument("--library", default=str(default_library()))
         if name == "measure":
-            s.add_argument("--out")
+            s.add_argument("--force-remeasure", action="store_true",
+                           help="measure even though the library is already leveled (restore originals before apply)")
+        if name in ("measure", "run"):
+            s.add_argument("--out", help="plan file (run default: ~/.cache/speak-app/level-plan.json)")
         if name == "verify":
             s.add_argument("--sample", type=int, default=0, help="clips per voice (default all)")
     args = p.parse_args(argv)
     if args.cmd != "apply":
         ensure_deps(argv)
-    return {"measure": cmd_measure, "apply": cmd_apply, "verify": cmd_verify}[args.cmd](args)
+    return {"measure": cmd_measure, "apply": cmd_apply, "verify": cmd_verify, "run": cmd_run}[args.cmd](args)
 
 
 if __name__ == "__main__":

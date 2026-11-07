@@ -52,6 +52,7 @@ For complete installation instructions, see **[INSTALLATION.md](INSTALLATION.md)
 - **Profiles**: `phrases/profiles.json` (voices + cockpit assignments), `phrases/casting.json` (models, append-only clause menu); `tts/profiles.py` backs `speak --profiles | --assign | --profile`
 - **Join**: `tts/phrase_join.py` turns `speak "name: clause"` into stored name + clause clips; free text in that voice; unknown names logged to `~/.cache/speak-app/voice_misses.log`
 - **Soundbite**: `tts/soundbite.py`, library at `~/soundbite` (`SOUNDBITE_DIR`); every paid clip is stored and looked up first
+- **Leveling**: `tts/level_clips.py measure|apply|verify|run` evens voice loudness; guide in docs/LEVELING.md
 - **Record**: `phrases/record.py --provider P [--profile ID | --only IDS | --reindex]`, run `--dry-run` first; it and `phrases/sfx.py` call paid APIs on purpose (free-text lines also pay once)
 - **Plugin**: `plugins/speak-voices` (Claude Code), docs/VOICES-COCKPIT.md for cockpit use; `tests/test_voices_docs.py` keeps the docs' flags honest
 
