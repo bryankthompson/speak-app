@@ -15,7 +15,7 @@ from urllib.parse import unquote, urlsplit
 _REPO = Path(__file__).resolve().parents[1]
 if str(_REPO) not in sys.path:
     sys.path.insert(0, str(_REPO))
-from tts.soundbite import make_key
+from tts.soundbite import make_key, normalize
 
 PAGE = r'''<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Soundbite / Voice gallery</title><style>
 :root{color-scheme:dark;
@@ -178,6 +178,19 @@ input{background:#202229;
   border-radius:8px;
   min-width:min(340px,60vw)}
 .clips{margin-top:10px}
+.card{cursor:pointer}
+.card.sel{border-color:var(--lime)}
+select{background:#202229;color:var(--ink);border:1px solid var(--line);padding:10px 12px;border-radius:8px}
+.chip{display:inline-block;border:1px solid #444751;border-radius:99px;padding:3px 10px;margin:2px 4px 2px 0;font-size:12px}
+.chip small{color:var(--muted)}
+.chip.warn,.warn{color:#ffb454;border-color:#ffb454}
+.link{background:none;border:0;color:var(--purple);cursor:pointer;padding:0;font:inherit;text-decoration:underline}
+.phr{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:6px}
+.phr .row{padding:6px 10px}
+.phr .row.miss{opacity:.45}
+.phr .row .text{white-space:normal}
+.grp{margin:16px 0 6px}
+.ex{color:var(--lime);border-color:var(--lime)}
 .empty{padding:20px;
   color:var(--muted)}
 @media(max-width:700px){main{padding:14px}
@@ -188,12 +201,13 @@ input{background:#202229;
   flex-direction:column}
 }
 
-</style><header><div class="eyebrow">Local sound library / read only</div><h1>Voice gallery<span style="color:var(--lime)">.</span></h1><div class="totals" id="totals"></div></header><main><section class="section"><div class="section-head"><h2>Voices</h2><span class="muted">Hear a name and three menu lines</span></div><div class="voices" id="voices"></div></section><section class="section"><div class="section-head"><h2>Library map</h2><span class="muted">Each dot is one voice × one menu clause</span></div><div class="panel map-wrap"><table class="matrix" id="matrix"></table></div></section><section class="section"><h2 style="margin-bottom:13px">Breakdown</h2><div class="charts"><div class="panel"><h3>By provider</h3><div id="providers"></div></div><div class="panel"><h3>By voice</h3><div id="byvoice"></div></div></div></section><section class="section"><h2 style="margin-bottom:13px">Cockpit assignments</h2><div class="panel"><table><thead><tr><th>Cockpit</th><th>Profile</th><th>Name clip</th><th></th></tr></thead><tbody id="assignments"></tbody></table></div></section><section class="section"><h2 style="margin-bottom:13px">Sound effects</h2><div class="panel effects" id="effects"></div></section><section class="section"><div class="section-head"><h2>Clip browser</h2><input id="filter" placeholder="Filter text, voice, or provider…"></div><div class="clips" id="clips"></div><div class="muted" id="clip-count"></div></section></main><audio id="player"></audio><script>const $ = selector => document.querySelector(selector);
+</style><header><div class="eyebrow">Local sound library / read only</div><h1>Voice gallery<span style="color:var(--lime)">.</span></h1><div class="totals" id="totals"></div></header><main><section class="section"><div class="section-head"><h2>Voices</h2><span class="muted">Click a voice to see its phrases <select id="pick" aria-label="Choose a profile"></select></span></div><div class="voices" id="voices"></div></section><section class="section" id="profile-view"></section><section class="section"><div class="section-head"><h2>Profile ↔ cockpit map</h2><span class="muted">Which profile each cockpit speaks with</span></div><div class="charts"><div class="panel"><h3>By cockpit</h3><table><thead><tr><th>Cockpit</th><th>Profile</th><th>Voice</th><th>Says</th><th>Name clip</th></tr></thead><tbody id="by-cockpit"></tbody></table></div><div class="panel"><h3>By profile</h3><table><thead><tr><th>Profile</th><th>Cockpits</th></tr></thead><tbody id="by-profile"></tbody></table></div></div></section><section class="section"><div class="section-head"><h2>Library map</h2><span class="muted">Each dot is one voice × one menu clause</span></div><div class="panel map-wrap"><table class="matrix" id="matrix"></table></div></section><section class="section"><h2 style="margin-bottom:13px">Breakdown</h2><div class="charts"><div class="panel"><h3>By provider</h3><div id="providers"></div></div><div class="panel"><h3>By voice</h3><div id="byvoice"></div></div></div></section><section class="section"><h2 style="margin-bottom:13px">Sound effects</h2><div class="panel effects" id="effects"></div></section><section class="section"><div class="section-head"><h2>Clip browser</h2><input id="filter" placeholder="Filter text, voice, or provider…"></div><div class="clips" id="clips"></div><div class="muted" id="clip-count"></div></section></main><audio id="player"></audio><script>const $ = selector => document.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
 }[char]));
 let data;
 let active = 0;
+let selected = '';
 let cancelSequence = null;
 
 function setClip(audio, path) {
@@ -292,7 +306,7 @@ function render() {
   $('#voices').innerHTML = sorted.map(profile => {
     const samples = ['what next?', 'go or no-go?', 'is done'].map(text => profile.clips[text]);
     const sequencePaths = [profile.name_clip, ...samples].filter(Boolean);
-    return `<article class="card">
+    return `<article class="card${profile.id === selected ? ' sel' : ''}" data-profile="${esc(profile.id)}">
       <span class="badge">${esc(profile.provider)}</span>
       <h3>${esc(profile.character || profile.id)}</h3>
       <div class="muted">${esc(profile.id)} · ${esc(profile.voice)}</div>
@@ -315,14 +329,84 @@ function render() {
   $('#matrix').innerHTML = header + '<tbody>' + rows + '</tbody>';
   bars('#providers', data.provider_breakdown);
   bars('#byvoice', data.voice_breakdown);
-  $('#assignments').innerHTML = data.assignments.map(assignment => `
-    <tr><td>${esc(assignment.cockpit)}</td><td>${esc(assignment.profile)}</td>
-      <td>${esc(assignment.say || '')}</td><td>${assignment.name_clip ? btn(assignment.name_clip) : ''}</td></tr>`).join('');
+  const byId = Object.fromEntries(profiles.map(p => [p.id, p]));
+  const pick = id => id && byId[id]
+    ? `<button class="link" data-profile="${esc(id)}">${esc(id)}</button>` : `<span class="warn">${esc(id || 'none')} (no such profile)</span>`;
+  $('#by-cockpit').innerHTML = data.assignments.map(a => {
+    const p = byId[a.profile];
+    return `<tr><td>${esc(a.cockpit)}</td><td>${pick(a.profile)}</td>
+      <td>${esc(p ? p.label || p.character || p.voice : '')}</td><td>${esc(a.say || '')}</td>
+      <td>${a.name_clip ? 'yes ' + btn(a.name_clip) : '<span class="warn">missing</span>'}</td></tr>`;
+  }).join('');
+  $('#by-profile').innerHTML = sorted.filter(p => p.provider !== 'sfx').map(p => `
+    <tr><td>${pick(p.id)}</td><td>${p.cockpits.length ? p.cockpit_info.map(a =>
+      `<span class="chip${a.name_clip ? '' : ' warn'}" title="${a.name_clip ? '' : 'name clip missing'}">${esc(a.cockpit)}${a.say !== a.cockpit ? ` <small>says ${esc(a.say)}</small>` : ''}</span>`).join('')
+      : '<span class="muted">unused</span>'}</td></tr>`).join('');
+  $('#pick').innerHTML = '<option value="">Choose a profile…</option>' + sorted.map(p =>
+    `<option value="${esc(p.id)}">${esc(p.id)} · ${esc(p.character || p.voice)}</option>`).join('');
+  showProfile();
   $('#effects').innerHTML = data.sound_effects.map(effect => `
     <div class="row"><span class="text">${esc(effect.text)}</span>${btn(effect.file)}</div>`).join('')
     || '<div class="empty">No sound effects</div>';
   filter();
 }
+
+function readHash() {
+  const match = location.hash.match(/^#profile=(.+)$/);
+  if (!match) return '';
+  try { return decodeURIComponent(match[1]); } catch (e) { return ''; }
+}
+
+function phrase(item, extra = '') {
+  return item.file
+    ? `<div class="row"><span class="text">${esc(item.text)}${extra}</span>${btn(item.file, '')}</div>`
+    : `<div class="row miss"><span class="text">${esc(item.text)}${extra} <span class="muted">not recorded</span></span></div>`;
+}
+
+function showProfile() {
+  selected = readHash();
+  const p = data.profiles.find(p => p.id === selected);
+  $('#pick').value = p ? p.id : '';
+  document.querySelectorAll('.card[data-profile]').forEach(card =>
+    card.classList.toggle('sel', card.dataset.profile === selected));
+  const view = $('#profile-view');
+  if (!p) {
+    view.innerHTML = '<div class="panel empty">Pick a profile to see its phrases.</div>';
+    return;
+  }
+  const stored = list => list.filter(item => item.file).length;
+  const lines = p.recorded.flatMap(group => group.lines);
+  view.innerHTML = `<div class="panel">
+    <div class="section-head"><h2>${esc(p.character || p.id)}</h2><span class="badge">${esc(p.provider)}</span></div>
+    <div class="meta">${esc(p.id)} · voice ${esc(p.voice)}${p.label ? ' · ' + esc(p.label) : ''}${p.account ? ' · ' + esc(p.account) : ''}</div>
+    <div class="grp"><b>Cockpits using it</b></div>
+    <div>${p.cockpits.length ? p.cockpit_info.map(a =>
+      `<span class="chip${a.name_clip ? '' : ' warn'}">${esc(a.cockpit)}${a.say !== a.cockpit ? ` <small>says ${esc(a.say)}</small>` : ''}</span>`).join('')
+      : '<span class="muted">unused</span>'}</div>
+    <div class="grp"><b>Name clips</b> <span class="muted">${stored(p.name_clips)}/${p.name_clips.length}</span></div>
+    <div class="phr">${p.name_clips.map(item => phrase(item)).join('') || '<span class="muted">none</span>'}</div>
+    <div class="grp"><b>Menu clauses</b> <span class="muted">${stored(p.menu)}/${p.menu.length} stored</span></div>
+    <div class="phr">${p.menu.map(item => phrase(item)).join('') || '<span class="muted">none</span>'}</div>
+    <div class="grp"><b>Recorded lines</b> <span class="muted">${stored(lines)}/${lines.length} stored</span></div>
+    ${p.recorded.map(group => `<div class="grp"><span class="muted">${esc(group.prefix)} · ${stored(group.lines)}/${group.lines.length}</span></div>
+      <div class="phr">${group.lines.map(item => phrase(item, item.expressive ? ' <span class="badge ex">expressive</span>' : '')).join('')}</div>`).join('')
+      || '<span class="muted">none</span>'}
+  </div>`;
+}
+
+function choose(id) {
+  location.hash = id ? 'profile=' + encodeURIComponent(id) : '';
+}
+
+document.addEventListener('click', event => {
+  const target = event.target.closest('[data-profile]');
+  if (target && !event.target.closest('[data-play],[data-seq]')) {
+    choose(target.dataset.profile);
+    if (target.tagName === 'BUTTON') $('#profile-view').scrollIntoView();
+  }
+});
+$('#pick').addEventListener('change', event => choose(event.target.value));
+window.addEventListener('hashchange', () => data && showProfile());
 
 function filter() {
   if (!data) return;
@@ -421,6 +505,53 @@ def build_data(library: Path, profiles_file: Path, casting_file: Path) -> tuple[
         name_key = make_key(name_text, p["provider"], p["voice"], model, 1.0) if p else ""
         name_clip = _safe_rel(manifest.get(name_key, {}).get("file")) if name_key in manifest else None
         assignments.append({"cockpit": cockpit, "profile": a.get("profile"), "say": name_text, "name_clip": name_clip if name_clip in allowed else None})
+    lines_dir = casting_file.parent / "lines"
+    expressive = {normalize(t) for t in (casting.get("expressive") or {}).get("lines", [])}
+    by_voice: dict[tuple, list] = {}
+    for item in clips:
+        by_voice.setdefault((item.get("provider"), item.get("voice")), []).append(item)
+    by_cockpit = {a["cockpit"]: a for a in assignments}
+    for p in profiles:
+        if p["provider"] == "sfx":
+            p.update(menu=[], name_clips=[], recorded=[])
+            continue
+        model = casting.get("openai_model", "") if p["provider"] == "openai" else eleven_model
+        p["cockpit_info"] = [by_cockpit[c] for c in p["cockpits"]]
+        names, seen = [], set()
+        for a in p["cockpit_info"]:
+            if normalize(a["say"]) not in seen:
+                seen.add(normalize(a["say"]))
+                names.append({"text": a["say"], "file": a["name_clip"]})
+        p["name_clips"] = names
+        p["menu"] = [{"text": c, "file": p["clips"].get(c)} for c in clauses]
+        skip = seen | {normalize(c) for c in clauses}
+        stored = {}
+        for item in by_voice.get((p["provider"], p["voice"]), []):
+            t = normalize(item.get("text") or "")
+            if t and t not in skip and (t not in stored or (item.get("created") or "") > (stored[t].get("created") or "")):
+                stored[t] = item
+        listed = []
+        for a in p["cockpit_info"]:
+            path = (lines_dir / f'{a["cockpit"].lower()}.txt').resolve()
+            if path.parent == lines_dir.resolve() and path.is_file():
+                listed += [r.strip() for r in path.read_text().splitlines() if r.strip() and not r.strip().startswith("#")]
+        lines, used = [], set()
+        for text in listed:
+            t = normalize(text)
+            if t in used:
+                continue
+            used.add(t)
+            item = stored.get(t)
+            lines.append({"text": text, "file": item["file"] if item else None,
+                          "expressive": t in expressive, "created": item.get("created") if item else None})
+        for t, item in sorted(stored.items(), key=lambda kv: (kv[1].get("created") or "", kv[0])):
+            if t not in used:
+                lines.append({"text": item["text"], "file": item["file"], "expressive": t in expressive, "created": item.get("created")})
+        groups: dict[str, list] = {}
+        for line in lines:
+            head, sep, _ = line["text"].partition(": ")
+            groups.setdefault(head if sep else "other", []).append(line)
+        p["recorded"] = [{"prefix": k, "lines": v} for k, v in groups.items()]
     def breakdown(field):
         totals = {}
         for item in clips:
