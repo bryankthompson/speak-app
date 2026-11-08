@@ -59,7 +59,7 @@ def price_text(provider, chars):
     return f"{chars} chars = {chars // 2} credits at the measured 0.5/char ({chars} worst case)"
 
 
-def synth(provider, voice, text):
+def synth(provider, voice, text, settings=None):
     """One paid call: (HTTP-ish status, audio bytes or error text). 200 is success; 404 an unknown voice."""
     if provider == "openai":
         from openai import OpenAI
@@ -70,7 +70,7 @@ def synth(provider, voice, text):
     r = requests.post(
         f"https://api.elevenlabs.io/v1/text-to-speech/{voice}",
         headers={"xi-api-key": os.environ["ELEVENLABS_API_KEY"], "Accept": "audio/mpeg", "Content-Type": "application/json"},
-        json={"text": text, "model_id": CFG["elevenlabs_model"], "voice_settings": CFG["elevenlabs_settings"]},
+        json={"text": text, "model_id": CFG["elevenlabs_model"], "voice_settings": settings or CFG["elevenlabs_settings"]},
         timeout=60)
     return r.status_code, (r.content if r.status_code == 200 else r.text[:200])
 
@@ -81,8 +81,15 @@ def run_lines(path, provider, dry_run, call=synth):
     model = bite_model(provider)
     stored = soundbite._load()
 
+    def line_style(text):
+        """(settings, model string) for a line: the livelier style from casting.json "expressive", else the default."""
+        st = phrase_join.expressive_settings(text, casting) if provider == "elevenlabs" else None
+        if not st:
+            return None, model
+        return st, f"{CFG['elevenlabs_model']}|s{st['stability']:g}|b{st['similarity_boost']:g}"
+
     def have(text, voice):
-        e = stored.get(soundbite.make_key(text, provider, voice, model, 1.0))
+        e = stored.get(soundbite.make_key(text, provider, voice, line_style(text)[1], 1.0))
         return bool(e) and (soundbite.repo_dir() / e["file"]).exists()
 
     todo, bad, seen = [], 0, set()
@@ -114,7 +121,8 @@ def run_lines(path, provider, dry_run, call=synth):
         return 1 if bad else 0
     done = 0
     for entry, t in todo:
-        status, body = call(provider, entry["voice"], t)
+        style, t_model = line_style(t)
+        status, body = call(provider, entry["voice"], t, style) if style else call(provider, entry["voice"], t)
         if status == 404:
             print(f"voice not found, skipped {t}: {body}", file=sys.stderr)
             bad += 1
@@ -122,7 +130,7 @@ def run_lines(path, provider, dry_run, call=synth):
         if status != 200:
             print(f"STOP on first error: HTTP {status} {body}\nrecorded {done} before stopping", file=sys.stderr)
             return 2
-        if soundbite.save(t, provider, entry["voice"], body, model, 1.0) is None:
+        if soundbite.save(t, provider, entry["voice"], body, t_model, 1.0) is None:
             print(f"STOP: could not store the clip for {t}\nrecorded {done} before stopping", file=sys.stderr)
             return 2
         done += 1
