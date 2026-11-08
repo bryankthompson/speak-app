@@ -35,6 +35,7 @@ All of these are read-only and make no API call unless the table says otherwise.
 |---|---|---|
 | `speak --profiles` | one row per profile: id, provider, stored/total menu clips, character, `used by:` cockpits. Assigned profiles first | exit 0 |
 | `speak --profile ID [TEXT]` | plays the stored clips for `ID`: its name and three sample clauses, or the one stored `TEXT` | exit 1: unknown id (lists the ids), or a clip not recorded (names it and the `record.py --profile ID` command). Never calls the API |
+| `speak --lines NAME` | prints a cockpit's recorded line list (`phrases/lines/NAME.txt`) to say word for word, plus the names cast to the same voice. Read it on demand, about 450 tokens for lyrika | exit 1: no list for NAME (lists the ones that exist) |
 | `speak --assign COCKPIT PROFILE` | writes the assignment to `phrases/profiles.json` (cockpit stored lower-case), prints clip coverage | exit 1: unknown profile, or fewer than two arguments |
 | `python3 tts/profiles.py assign COCKPIT PROFILE SAY` | as `--assign`, and sets `say`: the words the name clip speaks when they differ from the cockpit name | as above |
 | `speak "NAME: TEXT"` | a cockpit line, resolved as below | exit 1 if the provider fails |

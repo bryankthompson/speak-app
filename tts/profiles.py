@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Voice profiles and who uses them.  speak --profiles | --assign COCKPIT PROFILE | --profile ID [text]
+"""Voice profiles and who uses them.  speak --profiles | --assign COCKPIT PROFILE | --profile ID [text] | --lines NAME
 
 A profile is a voice (provider + voice id + a one-line character) in phrases/profiles.json. An assignment
 points a cockpit at a profile. Clips are keyed on the voice, so re-assigning never re-records the menu;
@@ -75,6 +75,33 @@ def audition(profile_id, text=None):
     return 0
 
 
+LINES_DIR = Path(__file__).parent.parent / "phrases" / "lines"
+
+
+def show_lines(name):
+    """Print a cockpit's recorded line list (phrases/lines/NAME.txt): compact, for a session to read on demand."""
+    path = LINES_DIR / f"{name.lower()}.txt"
+    if not path.exists():
+        have = sorted(p.stem for p in LINES_DIR.glob("*.txt")) if LINES_DIR.exists() else []
+        print(f"no recorded line list for '{name}'. Lists: {', '.join(have) or 'none'}", file=sys.stderr)
+        return 1
+    rows = [r.strip() for r in path.read_text().splitlines() if r.strip() and not r.strip().startswith("#")]
+    print(f"{name}: say these lines word for word with speak \"...\" (stored, free). Any other wording is generated and paid once.")
+    for r in rows:
+        print(r)
+    c = phrase_join.load_casting()
+    prof = c["assignments"].get(name.lower(), {}).get("profile")
+    names = []
+    for k, a in c["assignments"].items():
+        if a.get("profile") == prof and k != name.lower():
+            n = a.get("say", k)
+            if n not in names and n != name.lower():
+                names.append(n)
+    if names:
+        print(f"Also in this voice (name + any menu clause, free, e.g. \"{names[0]}: is blocked\"): {', '.join(names)}")
+    return 0
+
+
 def main(argv):
     if not argv:
         print(__doc__)
@@ -84,6 +111,8 @@ def main(argv):
         return list_profiles()
     if cmd == "assign" and len(rest) >= 2:
         return assign(rest[0], rest[1], rest[2] if len(rest) > 2 else None)
+    if cmd == "lines" and rest:
+        return show_lines(rest[0])
     if cmd == "audition" and rest:
         return audition(rest[0], " ".join(rest[1:]) or None)
     print(__doc__)
