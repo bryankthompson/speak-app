@@ -10,3 +10,4 @@
   `speak --alert "text"`. Everything else follows the repo's setting.
 - `speak --profiles` lists voices and who has which; `speak --repos` shows who spoke or was skipped in the last 7 days.
 - Details: docs/VOICES.md and docs/VOICES-COCKPIT.md in the speak-app checkout.
+- A cockpit with its own recorded lines (`speak --lines NAME` prints them) says only those, word for word; other wording is a new paid clip.

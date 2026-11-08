@@ -52,6 +52,7 @@ OPTIONS:
     --profiles               List voice profiles, their cockpits and clip coverage
     --assign COCKPIT PROFILE Give a cockpit a voice profile
     --profile ID [TEXT]      Audition a profile from stored clips (no API call)
+    --lines NAME             List a cockpit's recorded lines (phrases/lines/NAME.txt) to say word for word
     -h, --help               Show this help message
 
 EXAMPLES:
@@ -255,6 +256,10 @@ while [[ $# -gt 0 ]]; do
         --profile)
             [[ $# -ge 2 ]] || { echo "Usage: speak --profile ID [text]" >&2; exit 1; }
             exec python3 "${TTS_DIR}/profiles.py" audition "${@:2}"
+            ;;
+        --lines)
+            [[ $# -ge 2 ]] || { echo "Usage: speak --lines NAME" >&2; exit 1; }
+            exec python3 "${TTS_DIR}/profiles.py" lines "$2"
             ;;
         -l|--list)
             ACTION="list"
