@@ -353,7 +353,8 @@ function render() {
 
 function readHash() {
   const match = location.hash.match(/^#profile=(.+)$/);
-  return match ? decodeURIComponent(match[1]) : '';
+  if (!match) return '';
+  try { return decodeURIComponent(match[1]); } catch (e) { return ''; }
 }
 
 function phrase(item, extra = '') {
@@ -531,8 +532,8 @@ def build_data(library: Path, profiles_file: Path, casting_file: Path) -> tuple[
                 stored[t] = item
         listed = []
         for a in p["cockpit_info"]:
-            path = lines_dir / f'{a["cockpit"].lower()}.txt'
-            if path.is_file():
+            path = (lines_dir / f'{a["cockpit"].lower()}.txt').resolve()
+            if path.parent == lines_dir.resolve() and path.is_file():
                 listed += [r.strip() for r in path.read_text().splitlines() if r.strip() and not r.strip().startswith("#")]
         lines, used = [], set()
         for text in listed:
