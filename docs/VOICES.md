@@ -145,6 +145,12 @@ voice (`candybone`, `candybone two`, `candybone three`, `nosunshine`, `creative 
 `speak "candybone two: is blocked"`: the name clip plus a menu clause, from stored clips and free. A desk name with
 free text is a whole paid line.
 
+**Livelier lines.** `casting.json` has an `expressive` entry: ElevenLabs settings (stability 0.30 instead of 0.5) and a
+list of whole lines recorded with them (lyrika's eight agree/doubt/outcome lines). The settings are part of the stored
+key, so `phrase_join` passes them to the provider for exactly those lines and `record.py --lines` records them the same
+way; any other wording is spoken and stored at the normal settings. To add a line to the style, add it to
+`expressive.lines`, then record it with `--lines`.
+
 ## Sound effects
 
 `phrases/sfx.py` makes eight short state sounds (`done`, `merged`, `question`, `needs-you`, `blocked`, `alert`,

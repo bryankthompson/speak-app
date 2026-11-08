@@ -163,5 +163,21 @@
     "good night",
     "welcome back",
     "goodbye"
-  ]
+  ],
+  "expressive": {
+    "elevenlabs_settings": {
+      "stability": 0.3,
+      "similarity_boost": 0.5
+    },
+    "lines": [
+      "lyrika: I think that will work",
+      "lyrika: that looks right to me",
+      "lyrika: good plan, let's do it",
+      "lyrika: that worked",
+      "lyrika: I'm not so sure about that",
+      "lyrika: that could go wrong",
+      "lyrika: let me check that first",
+      "lyrika: that did not work"
+    ]
+  }
 }

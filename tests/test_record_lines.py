@@ -106,3 +106,38 @@ def test_failed_save_stops_the_run(repo, monkeypatch):
     calls = []
     assert record.run_lines(_file(repo, f"{name}: one", f"{name}: two"), "openai", False, fake(calls)) == 2
     assert len(calls) == 1
+
+
+def _eleven_cast():
+    for k, a in record.PROFILES["assignments"].items():
+        p = record.PROFILES["profiles"][a["profile"]]
+        if p["provider"] == "elevenlabs":
+            return k, p
+    pytest.skip("no elevenlabs assignment")
+
+
+def test_expressive_line_is_recorded_with_its_own_settings_and_found_by_the_live_key(repo, monkeypatch):
+    name, p = _eleven_cast()
+    line = f"{name}: that worked"
+    monkeypatch.setitem(record.CFG, "expressive", {"elevenlabs_settings": {"stability": 0.3, "similarity_boost": 0.5},
+                                                   "lines": [line, f"{name}: other"]})
+    seen = []
+
+    def call(provider, voice, text, settings=None):
+        seen.append(settings)
+        return 200, b"AUDIO"
+    f = _file(repo, line, f"{name}: plain line")
+    assert record.run_lines(f, "elevenlabs", False, call) == 0
+    assert seen == [{"stability": 0.3, "similarity_boost": 0.5}, None]
+    live_model = f"{record.CFG['elevenlabs_model']}|s0.3|b0.5"  # what elevenlabs_tts builds from ELEVENLABS_STABILITY=0.3
+    assert soundbite.lookup(line, "elevenlabs", p["voice"], live_model, 1.0)
+    assert soundbite.lookup(f"{name}: plain line", "elevenlabs", p["voice"], record.bite_model("elevenlabs"), 1.0)
+    assert not soundbite.lookup(line, "elevenlabs", p["voice"], record.bite_model("elevenlabs"), 1.0)
+
+
+def test_expressive_settings_matches_ignoring_case_and_spacing():
+    import phrase_join
+    c = {"expressive": {"elevenlabs_settings": {"stability": 0.3, "similarity_boost": 0.5}, "lines": ["lyrika: that worked"]}}
+    assert phrase_join.expressive_settings("Lyrika:  THAT worked", c) == {"stability": 0.3, "similarity_boost": 0.5}
+    assert phrase_join.expressive_settings("lyrika: that failed", c) is None
+    assert phrase_join.expressive_settings("lyrika: that worked", {}) is None

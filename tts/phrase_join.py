@@ -62,6 +62,14 @@ def match_clause(tail: str, casting: dict) -> Optional[str]:
     return None
 
 
+def expressive_settings(text: str, casting: dict) -> Optional[dict]:
+    """ElevenLabs voice settings for a line recorded in the livelier style (casting.json "expressive"), else None."""
+    ex = casting.get("expressive") or {}
+    if _norm(text) in {_norm(t) for t in ex.get("lines", [])}:
+        return ex.get("elevenlabs_settings")
+    return None
+
+
 def bite_model(entry: dict, casting: dict) -> str:
     """The model string the recorder stored the clip under (must match for the lookup to hit)."""
     if entry["provider"] == "openai":
@@ -119,7 +127,12 @@ def try_join(text: str) -> bool:
             cmd = [str(script), text, "--voice", entry["voice"], "--model", casting["openai_model"]]
         else:
             cmd = [str(script), text, "--voice-id", entry["voice"]]
-        return subprocess.run(cmd, capture_output=True, text=True, timeout=60).returncode == 0
+        env = None
+        style = expressive_settings(text, casting) if entry["provider"] == "elevenlabs" else None
+        if style:  # the livelier recording is stored under these settings; the provider script reads them from env
+            env = {**os.environ, "ELEVENLABS_STABILITY": f"{style['stability']:g}",
+                   "ELEVENLABS_SIMILARITY_BOOST": f"{style['similarity_boost']:g}"}
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=60, env=env).returncode == 0
     except Exception as e:
         print(f"phrase join failed, using the default path: {e}", file=sys.stderr)
         return False
