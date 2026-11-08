@@ -334,6 +334,18 @@
     "creative candybone": {
       "profile": "arabella",
       "say": "creative candybone"
+    },
+    "project-showcases": {
+      "profile": "jon",
+      "say": "project showcases"
+    },
+    "lyrika-dev": {
+      "profile": "daniel",
+      "say": "lyrika dev"
+    },
+    "hades-router": {
+      "profile": "fable",
+      "say": "hades router"
     }
   }
 }
