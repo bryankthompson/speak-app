@@ -175,6 +175,17 @@ yet; they are stored for callers that want an earcon.
 (`--port N`, `--open` opens a browser, `--status`, `--stop`). It makes no API calls. Its module is
 `tts/library_web.py`.
 
+The page shows:
+- **Voices**: a card per profile and a dropdown; click one to select it. The choice lives in the URL hash, so
+  `http://127.0.0.1:8765/#profile=arabella` links straight to a profile and survives reload.
+- **Selected profile**: label, character, provider, voice id, account note; the cockpits using it (with the spoken `say`
+  name when different); its name clips; its menu clauses in menu order (missing ones greyed, "not recorded"); and its
+  recorded lines grouped by cockpit prefix (list order of `phrases/lines/NAME.txt`, then by recorded date), with an
+  "expressive" badge on `expressive.lines` and "not recorded" on listed lines that are not stored. Nothing for sfx.
+- **Profile ↔ cockpit map**: one row per cockpit (profile, voice, say name, name clip yes/missing) and one per profile
+  (its cockpits, or "unused"). Click a profile name to select it.
+- The library matrix, breakdown, sound effects and clip browser as before.
+
 ## Backups
 
 `~/soundbite` and this repo's `phrases/` are in the nightly encrypted `repo-backup`. The restore command is in

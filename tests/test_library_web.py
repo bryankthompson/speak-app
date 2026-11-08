@@ -173,3 +173,53 @@ def test_main_rejects_invalid_port_and_missing_manifest(tmp_path, capsys):
     missing.mkdir()
     assert library_web.main(["--library", str(missing)]) == 1
     assert "manifest.json" in capsys.readouterr().err
+
+
+def entry(text, voice="demo", created="2026-01-01T00:00:00", model="model", provider="openai"):
+    return make_key(text, provider, voice, model), {"text": text, "provider": provider, "voice": voice, "model": model, "speed": 1.0, "file": f"openai/demo/{abs(hash(text))}.mp3", "bytes": 1, "created": created}
+
+
+def profile_fixture(tmp_path):
+    library, profiles, casting, _, _ = fixture(tmp_path)
+    manifest = json.loads((library / "manifest.json").read_text())
+    for text, created in (("hello", "2026-01-01"), ("demo: b \"quoted\" <b>", "2026-01-03"), ("demo: a", "2026-01-02"), ("demo: tense", "2026-01-04"), ("loose line", "2026-01-05")):
+        k, v = entry(text, created=created)
+        manifest[k] = v
+    (library / "manifest.json").write_text(json.dumps(manifest))
+    p = json.loads(profiles.read_text())
+    p["assignments"]["orphan"] = {"profile": "nope"}
+    p["assignments"]["demo-two"] = {"profile": "demo", "say": "demo two"}
+    profiles.write_text(json.dumps(p))
+    c = json.loads(casting.read_text())
+    c["expressive"] = {"lines": ["demo: tense"]}
+    casting.write_text(json.dumps(c))
+    (tmp_path / "lines").mkdir()
+    (tmp_path / "lines" / "test-cockpit.txt").write_text("# header\ndemo: a\ndemo: never recorded\n")
+    return build_data(library, profiles, casting)[0]
+
+
+def test_profile_view_data(tmp_path):
+    data = profile_fixture(tmp_path)
+    demo, empty = data["profiles"]
+    assert [m["text"] for m in demo["menu"]] == ["what next?", "is done"]
+    assert demo["menu"][0]["file"] and demo["menu"][1]["file"] is None
+    assert [n["text"] for n in demo["name_clips"]] == ["hello", "demo two"]
+    assert demo["name_clips"][0]["file"] and demo["name_clips"][1]["file"] is None
+    assert [c["cockpit"] for c in demo["cockpit_info"]] == ["test-cockpit", "demo-two"]
+    assert empty["cockpits"] == [] and empty["recorded"] == []
+    groups = {g["prefix"]: g["lines"] for g in demo["recorded"]}
+    # list order first (stored or not), then the rest by recorded date
+    assert [l["text"] for l in groups["demo"]] == ["demo: a", "demo: never recorded", "demo: b \"quoted\" <b>", "demo: tense"]
+    assert groups["demo"][1]["file"] is None
+    assert [l["expressive"] for l in groups["demo"]] == [False, False, False, True]
+    assert [l["text"] for l in groups["other"]] == ["loose line"]
+    assert all("what next?" != l["text"] and l["text"] != "hello" for g in groups.values() for l in g)
+
+
+def test_unmatched_cockpit_and_special_chars_carried_as_data(tmp_path):
+    data = profile_fixture(tmp_path)
+    orphan = next(a for a in data["assignments"] if a["cockpit"] == "orphan")
+    assert orphan["profile"] == "nope" and orphan["name_clip"] is None
+    assert json.loads(json.dumps(data, ensure_ascii=False))  # serialises with quote and markup in a line
+    from tts.library_web import PAGE
+    assert "esc(item.text)" in PAGE and "#profile=" in PAGE
