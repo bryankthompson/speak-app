@@ -97,10 +97,12 @@ def adopt(text: str, provider: str, voice: str, model: str = "", speed: float = 
         return True
 
 
-def lookup(text: str, provider: str, voice: str, model: str = "", speed: float = 1.0) -> Optional[Path]:
-    """Return the stored mp3 path, or None on a miss. Never raises: a broken repo is a miss."""
+def lookup(text: str, provider: str, voice: str, model: str = "", speed: float = 1.0,
+           manifest: Optional[dict] = None) -> Optional[Path]:
+    """Return the stored mp3 path, or None on a miss. Never raises: a broken repo is a miss.
+    A caller checking many clips passes `manifest` (one `_load()`) so the file is read once, not per clip."""
     try:
-        entry = _load().get(make_key(text, provider, voice, model, speed))
+        entry = (_load() if manifest is None else manifest).get(make_key(text, provider, voice, model, speed))
         if entry:
             path = repo_dir() / entry["file"]
             if path.exists():
