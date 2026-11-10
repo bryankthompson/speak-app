@@ -17,12 +17,12 @@ import soundbite  # noqa: E402
 SAMPLE = ["what next?", "go or no-go?", "is done"]
 
 
-def _clips(profile_id, casting, say=None):
+def _clips(profile_id, casting, say=None, manifest=None):
     """(stored, wanted) clip counts for a profile: the clause menu, plus the name clip when `say` is given."""
     prof = casting["profiles"][profile_id]
     model = phrase_join.bite_model(prof, casting)
     texts = ([say] if say else []) + list(casting["clauses"])
-    have = sum(1 for t in texts if soundbite.lookup(t, prof["provider"], prof["voice"], model, 1.0))
+    have = sum(1 for t in texts if soundbite.lookup(t, prof["provider"], prof["voice"], model, 1.0, manifest))
     return have, len(texts)
 
 
@@ -31,8 +31,13 @@ def list_profiles():
     users = {}
     for cockpit, a in c["assignments"].items():
         users.setdefault(a["profile"], []).append(cockpit)
+    try:
+        stored = soundbite._load()  # once: a lookup per clip reloaded the whole manifest 5,000+ times (87 s)
+    except Exception as e:
+        print(f"soundbite manifest unreadable (every clip counts as missing): {e}", file=sys.stderr)
+        stored = {}
     for pid, prof in sorted(c["profiles"].items(), key=lambda kv: (kv[0] not in users, kv[0])):
-        have, want = _clips(pid, c)
+        have, want = _clips(pid, c, manifest=stored)
         who = ", ".join(sorted(users.get(pid, []))) or "-"
         print(f"{pid:<10} {prof['provider']:<10} {have:>3}/{want} menu  {prof['character']:<32} used by: {who}")
     return 0

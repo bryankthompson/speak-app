@@ -63,3 +63,15 @@ def test_join_follows_the_new_assignment():
     assert phrase_join.plan("hades: go or no-go?", c)[1]["voice"] == "fable"
     profiles.assign("hades", "george")
     assert phrase_join.plan("hades: go or no-go?", phrase_join.load_casting())[1]["voice"] == "JBFq"
+
+
+def test_list_profiles_reads_the_manifest_once_not_per_clip(monkeypatch, capsys):
+    """speak --profiles took 30-90 s because each clip lookup reloaded the 2 MB manifest."""
+    record("fable", "hades")
+    loads = []
+    real = soundbite._load
+    monkeypatch.setattr(soundbite, "_load", lambda: loads.append(1) or real())
+    assert profiles.list_profiles() == 0
+    out = capsys.readouterr().out
+    assert len(loads) == 1
+    assert "fable" in out and "menu" in out and f"{len(phrase_join.load_casting()['clauses'])}/" in out
