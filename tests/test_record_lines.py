@@ -143,3 +143,28 @@ def test_expressive_settings_matches_ignoring_case_and_spacing():
     assert phrase_join.expressive_settings("Lyrika:  THAT worked", c) == {"stability": 0.3, "similarity_boost": 0.5}
     assert phrase_join.expressive_settings("lyrika: that failed", c) is None
     assert phrase_join.expressive_settings("lyrika: that worked", {}) is None
+
+
+def _stored_pair(repo):
+    name, prof = _openai_cast()
+    entry = record.phrase_join.resolve_cast(name, {**record.CFG, **record.PROFILES})
+    clause = record.CFG["clauses"][0]
+    paths = [soundbite.save(t, "openai", prof["voice"], AUDIO, record.CFG["openai_model"], 1.0)
+             for t in (entry["name"], clause)]
+    return name, clause, paths
+
+
+def test_a_stored_clip_too_small_to_be_a_clip_is_recorded_again(repo):
+    name, clause, paths = _stored_pair(repo)
+    paths[1].write_bytes(b"torn")  # still in the manifest and on disk, but lookup would not play it
+    calls = []
+    assert record.run_lines(_file(repo, f"{name}: {clause}"), "openai", False, fake(calls)) == 0
+    assert len(calls) == 1  # the pair is not fully stored, so the line is recorded
+
+
+def test_a_manifest_entry_whose_clip_vanished_is_recorded_again_not_a_crash(repo):
+    name, clause, paths = _stored_pair(repo)
+    paths[0].unlink()
+    calls = []
+    assert record.run_lines(_file(repo, f"{name}: {clause}"), "openai", False, fake(calls)) == 0
+    assert len(calls) == 1

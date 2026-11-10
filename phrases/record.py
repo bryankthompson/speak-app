@@ -89,8 +89,8 @@ def run_lines(path, provider, dry_run, call=synth):
         return st, f"{CFG['elevenlabs_model']}|s{st['stability']:g}|b{st['similarity_boost']:g}"
 
     def have(text, voice):
-        e = stored.get(soundbite.make_key(text, provider, voice, line_style(text)[1], 1.0))
-        return bool(e) and (soundbite.repo_dir() / e["file"]).exists() and (soundbite.repo_dir() / e["file"]).stat().st_size >= soundbite.MIN_CLIP_BYTES
+        # one rule for "is it stored": soundbite.lookup (on disk, big enough to be a clip; never raises)
+        return bool(soundbite.lookup(text, provider, voice, line_style(text)[1], 1.0, stored))
 
     todo, bad, seen = [], 0, set()
     for raw in Path(path).read_text().splitlines():
@@ -163,8 +163,7 @@ def main():
     stored = soundbite._load()  # read the manifest once, not once per clip
 
     def have(c, t):
-        e = stored.get(soundbite.make_key(t, a.provider, c["voice"], model, 1.0))
-        return bool(e) and (soundbite.repo_dir() / e["file"]).exists() and (soundbite.repo_dir() / e["file"]).stat().st_size >= soundbite.MIN_CLIP_BYTES
+        return bool(soundbite.lookup(t, a.provider, c["voice"], model, 1.0, stored))  # same rule as the live path
 
     todo = [(c, t) for c, t in jobs(a.provider, a.profile, a.only.split(',') if a.only else None) if not have(c, t)]
     chars = sum(len(t) for _, t in todo)
