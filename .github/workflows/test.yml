@@ -21,4 +21,4 @@ jobs:
           python-version: "3.12"
       - run: pip install pytest
       - name: hermetic tests only
-        run: python -m pytest tests/test_soundbite.py tests/test_library_web.py tests/test_voices_docs.py tests/test_record_lines.py tests/test_speak_lines.py tests/test_level_plan.py tests/test_repo_gate.py tests/test_phrase_join.py tests/test_profiles.py tests/test_pytest_config.py -q
+        run: python -m pytest tests/test_soundbite.py tests/test_library_web.py tests/test_voices_docs.py tests/test_record_lines.py tests/test_speak_lines.py tests/test_level_plan.py tests/test_repo_gate.py tests/test_phrase_join.py tests/test_profiles.py tests/test_pytest_config.py tests/test_ask_cue.py -q
