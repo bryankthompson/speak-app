@@ -26,6 +26,27 @@ PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 sys.path.insert(0, str(PROJECT_ROOT / "tts"))
 
+LIVE_API_KEYS = ("OPENAI_API_KEY", "ELEVENLABS_API_KEY")
+HUMAN_RUN_MARKERS = ("manual", "audio_output", "interactive")
+
+
+@pytest.fixture(autouse=True)
+def no_live_api_keys(request, monkeypatch):
+    """Hide the paid-provider keys from every test unless SPEAK_LIVE_API=1 or the test is marked for a human run.
+
+    Tests that gate on a real key (test_all_voices_simple.py) then skip instead of calling OpenAI or ElevenLabs
+    (real money, real audio) on a machine where the keys happen to be set. The manual voice tests (marked manual,
+    audio_output or interactive; `pytest -m audio_output`) keep the keys: running them is the point. A test that
+    needs a key sets its own with patch.dict or monkeypatch, as the mocked provider tests already do.
+    """
+    if os.environ.get("SPEAK_LIVE_API") == "1":
+        return
+    if any(request.node.get_closest_marker(m) for m in HUMAN_RUN_MARKERS):
+        return
+    for key in LIVE_API_KEYS:
+        monkeypatch.delenv(key, raising=False)
+
+
 @pytest.fixture
 def mock_env():
     """Mock environment variables for testing."""
