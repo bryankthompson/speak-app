@@ -25,7 +25,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 import soundbite
 
 # Voice options
-VoiceType = Literal["alloy", "echo", "fable", "onyx", "nova", "shimmer"]
+VoiceType = Literal["alloy", "ash", "coral", "echo", "fable", "onyx", "nova", "sage", "shimmer"]
 
 
 # 1Password item holding the current key (override with OPENAI_OP_ITEM)
@@ -57,7 +57,7 @@ def speak_with_openai(
     
     Args:
         text: Text to convert to speech
-        voice: Voice to use (alloy, echo, fable, onyx, nova, shimmer)
+        voice: Voice to use (alloy, ash, coral, echo, fable, onyx, nova, sage, shimmer)
         model: TTS model to use (tts-1 or tts-1-hd)
         speed: Speech speed (0.25 to 4.0)
         
@@ -197,7 +197,7 @@ def main():
     # Parse command line arguments
     parser = argparse.ArgumentParser(description='OpenAI TTS provider for Claude Code')
     parser.add_argument('text', nargs='*', help='Text to speak')
-    parser.add_argument('--voice', choices=["alloy", "echo", "fable", "onyx", "nova", "shimmer"], 
+    parser.add_argument('--voice', choices=["alloy", "ash", "coral", "echo", "fable", "onyx", "nova", "sage", "shimmer"], 
                         help='Voice to use (default: nova)')
     parser.add_argument('--model', choices=["tts-1", "tts-1-hd"], 
                         help='Model to use (default: tts-1)')
@@ -214,7 +214,7 @@ def main():
     
     # Handle list voices
     if args.list_voices:
-        voices = ["alloy", "echo", "fable", "onyx", "nova", "shimmer"]
+        voices = ["alloy", "ash", "coral", "echo", "fable", "onyx", "nova", "sage", "shimmer"]
         print("Available OpenAI voices:")
         for voice in voices:
             print(f"  - {voice}")
@@ -222,7 +222,7 @@ def main():
     
     # Handle test voice
     if args.test_voice:
-        if args.test_voice not in ["alloy", "echo", "fable", "onyx", "nova", "shimmer"]:
+        if args.test_voice not in ["alloy", "ash", "coral", "echo", "fable", "onyx", "nova", "sage", "shimmer"]:
             print(f"Invalid voice: {args.test_voice}", file=sys.stderr)
             sys.exit(1)
         
@@ -252,7 +252,7 @@ def main():
     speed = args.speed or float(os.getenv("OPENAI_TTS_SPEED", "1.0"))
     
     # Validate parameters
-    if voice not in ["alloy", "echo", "fable", "onyx", "nova", "shimmer"]:
+    if voice not in ["alloy", "ash", "coral", "echo", "fable", "onyx", "nova", "sage", "shimmer"]:
         print(f"Invalid voice: {voice}", file=sys.stderr)
         sys.exit(1)
     
