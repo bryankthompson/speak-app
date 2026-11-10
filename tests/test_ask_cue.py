@@ -104,3 +104,10 @@ def test_a_playback_failure_is_logged_and_never_raises(tmp_path, monkeypatch):
     log = tmp_path / "ask_cue.log"
     ask_cue.play(["a.mp3"], log_path=log)
     assert "play: RuntimeError: no audio device" in log.read_text()
+
+
+def test_tts_disabled_globally_keeps_the_cue_silent(tmp_path, stored, monkeypatch):
+    monkeypatch.setenv("TTS_ENABLED", "false")
+    calls = []
+    assert ask_cue.run(payload(git_repo(tmp_path / "r")), spawn=lambda *a, **k: calls.append(a), log_path=tmp_path / "log") is None
+    assert calls == []

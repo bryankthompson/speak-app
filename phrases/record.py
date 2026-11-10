@@ -90,7 +90,7 @@ def run_lines(path, provider, dry_run, call=synth):
 
     def have(text, voice):
         e = stored.get(soundbite.make_key(text, provider, voice, line_style(text)[1], 1.0))
-        return bool(e) and (soundbite.repo_dir() / e["file"]).exists()
+        return bool(e) and (soundbite.repo_dir() / e["file"]).exists() and (soundbite.repo_dir() / e["file"]).stat().st_size >= soundbite.MIN_CLIP_BYTES
 
     todo, bad, seen = [], 0, set()
     for raw in Path(path).read_text().splitlines():
@@ -164,7 +164,7 @@ def main():
 
     def have(c, t):
         e = stored.get(soundbite.make_key(t, a.provider, c["voice"], model, 1.0))
-        return bool(e) and (soundbite.repo_dir() / e["file"]).exists()
+        return bool(e) and (soundbite.repo_dir() / e["file"]).exists() and (soundbite.repo_dir() / e["file"]).stat().st_size >= soundbite.MIN_CLIP_BYTES
 
     todo = [(c, t) for c, t in jobs(a.provider, a.profile, a.only.split(',') if a.only else None) if not have(c, t)]
     chars = sum(len(t) for _, t in todo)

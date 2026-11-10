@@ -40,6 +40,8 @@ def run(stdin_text, spawn=subprocess.Popen, log_path=LOG):
         payload = json.loads(stdin_text or "{}")
         if payload.get("tool_name") != "AskUserQuestion":
             return None
+        if os.getenv("TTS_ENABLED", "true") == "false":  # same global off switch as speak
+            return None
         root, _ = repo_gate.repo_root(payload.get("cwd") or os.getenv("CLAUDE_PROJECT_DIR"))
         text = f"{root.name.lower()}: {CLAUSE}"
         allow, voices, repo, reason = repo_gate.decide(cwd=root)
