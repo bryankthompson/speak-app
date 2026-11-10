@@ -186,10 +186,9 @@ def _fake_main_provider(provider, monkeypatch):
         monkeypatch.setitem(sys.modules, "openai", fake_openai)
         monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     else:
-        import requests
         monkeypatch.setenv("ELEVENLABS_API_KEY", "test-key")
-        monkeypatch.setattr(requests, "post", lambda *a, **k: types.SimpleNamespace(
-            status_code=200, content=AUDIO, text=""))
+        monkeypatch.setitem(sys.modules, "requests", types.SimpleNamespace(
+            post=lambda *a, **k: types.SimpleNamespace(status_code=200, content=AUDIO, text="")))
 
 
 @pytest.mark.parametrize("provider", ["openai", "elevenlabs"])
