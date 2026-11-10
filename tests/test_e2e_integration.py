@@ -29,8 +29,6 @@ PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 # Import project modules
-from tts.cache_manager import TTSCache
-from tts.usage_tracker import UsageTracker
 
 
 class TestCompleteUserWorkflows:
@@ -132,41 +130,6 @@ class TestCompleteUserWorkflows:
                 assert provider in result.stdout.lower() or "offline" in result.stdout.lower()
             else:
                 assert provider in result.stdout.lower()
-    
-    def test_cache_lifecycle_workflow(self, speak_script_path, clean_environment):
-        """Test complete cache lifecycle workflow."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            # Configure cache directory
-            env = clean_environment.copy()
-            env['TTS_PROVIDER'] = 'pyttsx3'  # Use offline provider
-            
-            cache = TTSCache(cache_dir=tmpdir)
-            
-            # Step 1: Cache miss - first time message
-            test_message = "Cache lifecycle test message"
-            
-            result = subprocess.run(
-                [str(speak_script_path), "--off", test_message],
-                capture_output=True,
-                text=True,
-                timeout=10,
-                env=env
-            )
-            
-            assert result.returncode == 0
-            
-            # Step 2: Verify cache entry would be created (simulate)
-            cache.save_audio(test_message, "pyttsx3", b"fake audio data", "default")
-            
-            # Step 3: Cache hit - second time message
-            cache_path = cache.get_audio_path(test_message, "pyttsx3", "default")
-            assert cache_path is not None
-            assert Path(cache_path).exists()
-            
-            # Step 4: Cache statistics
-            stats = cache.get_cache_stats()
-            assert stats['total_entries'] >= 1
-            assert stats['total_size_bytes'] > 0
     
     def test_error_recovery_workflow(self, speak_script_path, clean_environment):
         """Test complete error recovery workflow."""
@@ -429,60 +392,6 @@ class TestCostOptimizationIntegration:
                         assert result is False  # User cancelled
 
 
-class TestDataPersistenceIntegration:
-    """Test data persistence across operations."""
-    
-    def test_cache_persistence_workflow(self):
-        """Test cache persistence across multiple operations."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            # Create first cache instance
-            cache1 = TTSCache(cache_dir=tmpdir)
-            
-            # Add some data
-            test_text = "Persistence test message"
-            cache1.save_audio(test_text, "openai", b"fake audio data", "nova")
-            
-            # Verify data exists
-            path1 = cache1.get_audio_path(test_text, "openai", "nova")
-            assert path1 is not None
-            assert Path(path1).exists()
-            
-            # Create second cache instance (simulating restart)
-            cache2 = TTSCache(cache_dir=tmpdir)
-            
-            # Verify data persists
-            path2 = cache2.get_audio_path(test_text, "openai", "nova")
-            assert path2 is not None
-            assert Path(path2).exists()
-            assert path1 == path2
-    
-    def test_usage_tracking_persistence(self):
-        """Test usage tracking persistence across operations."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            # Create first tracker instance
-            tracker1 = UsageTracker(data_dir=tmpdir)
-            
-            # Track some usage
-            tracker1.track_usage("openai", "Persistence test 1")
-            tracker1.track_usage("elevenlabs", "Persistence test 2")
-            
-            # Get initial stats
-            stats1 = tracker1.stats
-            assert stats1['providers']['openai']['total_requests'] == 1
-            assert stats1['providers']['elevenlabs']['total_requests'] == 1
-            
-            # Create second tracker instance (simulating restart)
-            tracker2 = UsageTracker(data_dir=tmpdir)
-            
-            # Add more usage
-            tracker2.track_usage("openai", "Persistence test 3")
-            
-            # Verify persistence
-            stats2 = tracker2.stats
-            assert stats2['providers']['openai']['total_requests'] == 2
-            assert stats2['providers']['elevenlabs']['total_requests'] == 1
-
-
 class TestErrorHandlingIntegration:
     """Test error handling across components."""
     
@@ -513,26 +422,6 @@ class TestErrorHandlingIntegration:
             
             # Should handle error gracefully (fallback to pyttsx3)
             assert result.returncode == 0
-    
-    def test_cache_error_handling_workflow(self):
-        """Test cache error handling workflow."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            cache = TTSCache(cache_dir=tmpdir)
-            
-            # Test with invalid cache directory (should raise permission error)
-            try:
-                invalid_cache = TTSCache(cache_dir="/nonexistent/path")
-                # If it somehow succeeds, test that it handles errors gracefully
-                result = invalid_cache.get_audio_path("test", "openai", "nova")
-                assert result is None
-            except (PermissionError, FileNotFoundError):
-                # Expected behavior - cache creation fails with invalid path
-                pass
-            
-            # Should still work with valid cache
-            cache.save_audio("test", "openai", b"data", "nova")
-            result = cache.get_audio_path("test", "openai", "nova")
-            assert result is not None
     
     def test_permission_error_handling(self, speak_script_path):
         """Test permission error handling."""
@@ -587,32 +476,6 @@ class TestPerformanceIntegration:
         ops_per_second = 10 / duration
         assert ops_per_second > 1  # At least 1 operation per second
     
-    def test_cache_performance_integration(self, speak_script_path):
-        """Test cache performance integration."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            cache = TTSCache(cache_dir=tmpdir)
-            
-            # Pre-populate cache
-            test_messages = [f"Cache perf test {i}" for i in range(50)]
-            
-            for msg in test_messages:
-                cache.save_audio(msg, "pyttsx3", b"fake audio", "default")
-            
-            # Test cache hit performance
-            start_time = time.time()
-            
-            for msg in test_messages:
-                result = cache.get_audio_path(msg, "pyttsx3", "default")
-                assert result is not None
-            
-            duration = time.time() - start_time
-            
-            # Should be very fast
-            assert duration < 1  # Less than 1 second for 50 cache hits
-            hits_per_second = 50 / duration
-            assert hits_per_second > 50  # At least 50 hits per second
-
-
 class TestConfigurationIntegration:
     """Test configuration management across components."""
     

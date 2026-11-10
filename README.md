@@ -6,7 +6,7 @@
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/triepod-ai/speak-app/blob/main/LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20WSL-lightgrey.svg)](https://github.com/triepod-ai/speak-app)
 
-**A cost-optimized, multi-provider text-to-speech command-line tool with intelligent caching**
+**A cost-optimized, multi-provider text-to-speech command-line tool with a stored-clip library**
 
 [Features](#features) • [Installation](#installation) • [Quick Start](#quick-start) • [Documentation](#documentation) • [Examples](#examples)
 
@@ -23,10 +23,10 @@
 ### Key Features
 
 - 🎙️ **Multi-Provider Support**: OpenAI (default), ElevenLabs, and pyttsx3 (offline)
-- 💰 **Cost Optimization**: 95% cost reduction with OpenAI as default, intelligent caching system
+- 💰 **Cost Optimization**: 95% cost reduction with OpenAI as default; every paid clip is stored and replayed free
 - 🔄 **Intelligent Fallback**: Automatic provider selection (OpenAI → ElevenLabs → pyttsx3)
-- 💾 **Smart Caching**: Automatic caching of frequently used phrases
-- 📊 **Usage Tracking**: Monitor costs and usage patterns
+- 💾 **Stored clips**: every paid clip is saved (soundbite library) and looked up first, see [docs/VOICES.md](docs/VOICES.md)
+- 📊 **Cost per message**: `speak-with-tracking` shows what each message costs
 - 📝 **Flexible Input**: Direct text, piped input, or file reading
 - ⚡ **Zero Latency**: Non-blocking execution for script integration
 - 🔧 **Highly Configurable**: Environment variables and command-line options
@@ -151,16 +151,16 @@ export OPENAI_API_KEY="your-openai-key"
 | **OpenAI** | $0.15 | $4.50 | ⭐⭐⭐⭐ |
 | **pyttsx3** | $0.00 | $0.00 | ⭐⭐⭐ |
 
-### Usage Monitoring
+### Cost Control
 
-Track your TTS usage and costs:
+Keep API spend at zero while developing, and see what a message costs:
 
 ```bash
-# Usage tracking report
-python3 tts/usage_tracker.py --report
-
 # Development mode (free offline TTS)
 speak-dev "This saves money"
+
+# Cost of one message
+speak-with-tracking "Hello world"
 ```
 
 ## 🛠️ New Tools
