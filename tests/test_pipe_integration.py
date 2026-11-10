@@ -32,6 +32,21 @@ PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 
+
+def _keyless_env(home):
+    """Environment for a real `speak` run that cannot reach a paid provider: no keys in the environment, and a
+    HOME with no brainpods/.env (the provider scripts reload keys from there) and no soundbite library.
+    uv's cache and Python folders stay where they were so the run does not download anything."""
+    real_home = Path.home()
+    env = os.environ.copy()
+    for key in ("OPENAI_API_KEY", "ELEVENLABS_API_KEY"):
+        env.pop(key, None)
+    env.setdefault("UV_CACHE_DIR", str(real_home / ".cache" / "uv"))
+    env.setdefault("UV_PYTHON_INSTALL_DIR", str(real_home / ".local" / "share" / "uv" / "python"))
+    env["HOME"] = str(home)
+    return env
+
+
 class TestBasicPipeIntegration:
     """Test basic pipe input handling."""
     
@@ -501,32 +516,30 @@ class TestErrorRecoveryInPipeScenarios:
         """Get the path to the speak script."""
         return PROJECT_ROOT / "speak"
     
-    def test_pipe_input_with_invalid_provider(self, speak_script_path):
+    def test_pipe_input_with_invalid_provider(self, speak_script_path, tmp_path):
         """Test pipe input with invalid provider."""
         result = subprocess.run(
             f"echo 'Test message' | {speak_script_path} --provider invalid_provider",
             shell=True,
             capture_output=True,
             text=True,
-            timeout=10
+            timeout=10,
+            env=_keyless_env(tmp_path)
         )
         
         # Should handle invalid provider gracefully
         assert result.returncode != 0 or "error" in result.stderr.lower()
     
-    def test_pipe_input_with_missing_api_key(self, speak_script_path):
-        """Test pipe input when API keys are missing."""
-        env = os.environ.copy()
-        # Remove API keys
-        env.pop('OPENAI_API_KEY', None)
-        env.pop('ELEVENLABS_API_KEY', None)
-        
+    def test_pipe_input_with_missing_api_key(self, speak_script_path, tmp_path):
+        """Test pipe input when API keys are missing (also from ~/brainpods/.env, which speak reloads)."""
+        env = _keyless_env(tmp_path)
+
         result = subprocess.run(
             f"echo 'Test message' | {speak_script_path} --provider openai",
             shell=True,
             capture_output=True,
             text=True,
-            timeout=10,
+            timeout=20,
             env=env
         )
         
