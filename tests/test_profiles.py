@@ -65,6 +65,33 @@ def test_join_follows_the_new_assignment():
     assert phrase_join.plan("hades: go or no-go?", phrase_join.load_casting())[1]["voice"] == "JBFq"
 
 
+def _provider_voice_lists():
+    """The voice lists tts/openai_tts.py accepts, read from its source (stdlib only: the script needs openai/pygame to import)."""
+    import ast
+    tree = ast.parse((Path(__file__).parent.parent / "tts" / "openai_tts.py").read_text())
+    literal, choices = set(), set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign) and any(getattr(t, "id", "") == "VoiceType" for t in node.targets):
+            literal = {e.value for e in ast.walk(node.value) if isinstance(e, ast.Constant) and isinstance(e.value, str)} - {"Literal"}
+        if isinstance(node, ast.Call) and getattr(node.func, "attr", "") == "add_argument" and node.args \
+                and isinstance(node.args[0], ast.Constant) and node.args[0].value == "--voice":
+            for kw in node.keywords:
+                if kw.arg == "choices":
+                    choices = {e.value for e in ast.walk(kw.value) if isinstance(e, ast.Constant)}
+    return literal, choices
+
+
+def test_every_openai_profile_voice_is_accepted_by_the_provider_cli():
+    """A voice added to profiles.json but missing from openai_tts.py's whitelist fails on any phrase not yet stored,
+    then speaks in the default voice instead (found by the DRC when ash, coral and sage were added)."""
+    real = json.loads((Path(__file__).parent.parent / "phrases" / "profiles.json").read_text())
+    voices = {p["voice"] for p in real["profiles"].values() if p["provider"] == "openai"}
+    literal, choices = _provider_voice_lists()
+    assert literal and choices, "could not read the voice lists from tts/openai_tts.py"
+    assert voices <= literal, f"not in VoiceType: {sorted(voices - literal)}"
+    assert voices <= choices, f"not in --voice choices: {sorted(voices - choices)}"
+
+
 def test_list_profiles_reads_the_manifest_once_not_per_clip(monkeypatch, capsys):
     """speak --profiles took 30-90 s because each clip lookup reloaded the 2 MB manifest."""
     record("fable", "hades")
