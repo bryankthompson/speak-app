@@ -4,6 +4,8 @@
   spelled exactly as listed (stored clips play free; other text of 10 words or fewer is spoken once, then stored).
 - Need direction (what next?, go or no-go?)? Speak it with `speak "<session name>: <clause>"`, picking the clause from
   casting.json. If none fits, speak your own question in 10 words or fewer.
+  Exception: when you ask through AskUserQuestion, a hook already says "<session name>: needs your answer"; do not
+  speak that question yourself too. Speak only when you ask without that tool.
 - A repo speaks only if it is enabled: `speak --here on` inside it (once per repo; lanes follow their main checkout).
   Not enabled means `speak` prints `skipped: ...` and exits 0. `speak --here` shows the state.
 - Warnings that must be heard in every repo (errors, safety blocks, spend or credit limits, disk or key problems) use
