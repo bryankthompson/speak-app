@@ -30,6 +30,21 @@
       "voice": "alloy",
       "character": "neutral, clinical analyst"
     },
+    "ash": {
+      "provider": "openai",
+      "voice": "ash",
+      "character": "OpenAI ash, added for round two"
+    },
+    "coral": {
+      "provider": "openai",
+      "voice": "coral",
+      "character": "OpenAI coral, added for round two"
+    },
+    "sage": {
+      "provider": "openai",
+      "voice": "sage",
+      "character": "OpenAI sage, added for round two"
+    },
     "rachel": {
       "provider": "elevenlabs",
       "voice": "21m00Tcm4TlvDq8ikWAM",
@@ -257,7 +272,7 @@
       "profile": "antoni"
     },
     "apply-assist": {
-      "profile": "elli"
+      "profile": "sage"
     },
     "server-ops": {
       "profile": "arnold"
@@ -266,10 +281,11 @@
       "profile": "adam"
     },
     "converter": {
-      "profile": "sam"
+      "profile": "ash",
+      "say": "converter"
     },
     "answers-sheet": {
-      "profile": "domi"
+      "profile": "coral"
     },
     "claude-dev-harness": {
       "profile": "echo",
@@ -300,7 +316,7 @@
       "say": "vision tracking"
     },
     "2d-to-3d-sbs-converter": {
-      "profile": "sam",
+      "profile": "ash",
       "say": "converter"
     },
     "candybone": {
