@@ -90,3 +90,15 @@ def test_every_openai_profile_voice_is_accepted_by_the_provider_cli():
     assert literal and choices, "could not read the voice lists from tts/openai_tts.py"
     assert voices <= literal, f"not in VoiceType: {sorted(voices - literal)}"
     assert voices <= choices, f"not in --voice choices: {sorted(voices - choices)}"
+
+
+def test_list_profiles_reads_the_manifest_once_not_per_clip(monkeypatch, capsys):
+    """speak --profiles took 30-90 s because each clip lookup reloaded the 2 MB manifest."""
+    record("fable", "hades")
+    loads = []
+    real = soundbite._load
+    monkeypatch.setattr(soundbite, "_load", lambda: loads.append(1) or real())
+    assert profiles.list_profiles() == 0
+    out = capsys.readouterr().out
+    assert len(loads) == 1
+    assert "fable" in out and "menu" in out and f"{len(phrase_join.load_casting()['clauses'])}/" in out
