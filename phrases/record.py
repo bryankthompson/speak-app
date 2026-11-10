@@ -179,7 +179,9 @@ def main():
         for c, t in todo:
             audio = b"".join(client.audio.speech.create(
                 model=CFG["openai_model"], voice=c["voice"], input=t, speed=1.0).iter_bytes())
-            soundbite.save(t, "openai", c["voice"], audio, model, 1.0)
+            if soundbite.save(t, "openai", c["voice"], audio, model, 1.0) is None:
+                print(f"STOP: could not store the clip for {t}\nrecorded {done} before stopping", file=sys.stderr)
+                return 2
             done += 1
     else:
         import requests
@@ -201,7 +203,9 @@ def main():
                 print(f"STOP on first error: HTTP {r.status_code} {r.text[:200]}", file=sys.stderr)
                 print(f"recorded {done} before stopping", file=sys.stderr)
                 return 2
-            soundbite.save(t, "elevenlabs", c["voice"], r.content, model, 1.0)
+            if soundbite.save(t, "elevenlabs", c["voice"], r.content, model, 1.0) is None:
+                print(f"STOP: could not store the clip for {t}\nrecorded {done} before stopping", file=sys.stderr)
+                return 2
             done += 1
         if skipped:
             print(f"{len(skipped)} voice(s) skipped (404)", file=sys.stderr)
