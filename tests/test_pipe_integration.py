@@ -44,6 +44,13 @@ def _keyless_env(home):
     env.setdefault("UV_CACHE_DIR", str(real_home / ".cache" / "uv"))
     env.setdefault("UV_PYTHON_INSTALL_DIR", str(real_home / ".local" / "share" / "uv" / "python"))
     env["HOME"] = str(home)
+    # openai_tts.py asks the 1Password `op` CLI for a key when the environment has none: put a failing stub first on PATH
+    stub_dir = Path(home) / "stub-bin"
+    stub_dir.mkdir(parents=True, exist_ok=True)
+    stub = stub_dir / "op"
+    stub.write_text("#!/bin/sh\nexit 1\n")
+    stub.chmod(0o755)
+    env["PATH"] = f"{stub_dir}{os.pathsep}{env.get('PATH', '')}"
     return env
 
 
