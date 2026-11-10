@@ -1,5 +1,6 @@
 """record.py --lines: batch fill for free-text cockpit lines. No network, no paid call (a fake provider call)."""
 import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -168,3 +169,53 @@ def test_a_manifest_entry_whose_clip_vanished_is_recorded_again_not_a_crash(repo
     calls = []
     assert record.run_lines(_file(repo, f"{name}: {clause}"), "openai", False, fake(calls)) == 0
     assert len(calls) == 1
+
+
+def _profile(provider):
+    return next(pid for pid, p in record.PROFILES["profiles"].items() if p["provider"] == provider)
+
+
+def _fake_main_provider(provider, monkeypatch):
+    if provider == "openai":
+        class Speech:
+            def create(self, **kwargs):
+                return types.SimpleNamespace(iter_bytes=lambda: iter([AUDIO]))
+
+        fake_openai = types.SimpleNamespace(OpenAI=lambda: types.SimpleNamespace(
+            audio=types.SimpleNamespace(speech=Speech())))
+        monkeypatch.setitem(sys.modules, "openai", fake_openai)
+        monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    else:
+        import requests
+        monkeypatch.setenv("ELEVENLABS_API_KEY", "test-key")
+        monkeypatch.setattr(requests, "post", lambda *a, **k: types.SimpleNamespace(
+            status_code=200, content=AUDIO, text=""))
+
+
+@pytest.mark.parametrize("provider", ["openai", "elevenlabs"])
+def test_main_stops_when_clip_cannot_be_stored(repo, monkeypatch, capsys, provider):
+    profile = _profile(provider)
+    monkeypatch.setitem(record.CFG, "clauses", [])
+    monkeypatch.setattr(sys, "argv", ["record.py", "--provider", provider, "--profile", profile])
+    _fake_main_provider(provider, monkeypatch)
+    monkeypatch.setattr(record.soundbite, "save", lambda *a, **k: None)
+
+    assert record.main() == 2
+    err = capsys.readouterr().err
+    assert f"STOP: could not store the clip for {profile}" in err
+    assert "recorded 0 before stopping" in err
+    assert "recorded 1 clips" not in err
+
+
+@pytest.mark.parametrize("provider", ["openai", "elevenlabs"])
+def test_main_succeeds_when_clip_is_stored(repo, monkeypatch, capsys, provider):
+    profile = _profile(provider)
+    voice = record.PROFILES["profiles"][profile]["voice"]
+    monkeypatch.setitem(record.CFG, "clauses", [])
+    monkeypatch.setattr(sys, "argv", ["record.py", "--provider", provider, "--profile", profile])
+    _fake_main_provider(provider, monkeypatch)
+
+    assert record.main() == 0
+    err = capsys.readouterr().err
+    assert "recorded 1 clips" in err
+    assert soundbite.lookup(profile, provider, voice, record.bite_model(provider), 1.0).read_bytes() == AUDIO
