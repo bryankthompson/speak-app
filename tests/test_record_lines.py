@@ -10,6 +10,8 @@ sys.path.insert(0, str(ROOT / "phrases"))
 import record  # noqa: E402
 import soundbite  # noqa: E402
 
+AUDIO = b"AUDIO" * 300  # lookup treats a file under 1,024 bytes as not a clip
+
 
 @pytest.fixture(autouse=True)
 def repo(tmp_path, monkeypatch):
@@ -34,7 +36,7 @@ def _file(tmp_path, *rows):
 def fake(calls):
     def call(provider, voice, text):
         calls.append((provider, voice, text))
-        return 200, b"AUDIO"
+        return 200, AUDIO
     return call
 
 
@@ -62,7 +64,7 @@ def test_stored_key_is_the_one_the_live_path_looks_up(repo):
     assert record.run_lines(_file(repo, line), "openai", False, fake(calls)) == 0
     assert calls == [("openai", prof["voice"], line)]
     # openai_tts.py looks up (whole line, "openai", voice, model, speed) with the model it was given
-    assert soundbite.lookup(line, "openai", prof["voice"], record.CFG["openai_model"], 1.0).read_bytes() == b"AUDIO"
+    assert soundbite.lookup(line, "openai", prof["voice"], record.CFG["openai_model"], 1.0).read_bytes() == AUDIO
     # a second run finds it stored and calls nothing
     calls.clear()
     assert record.run_lines(_file(repo, line), "openai", False, fake(calls)) == 0
@@ -74,7 +76,7 @@ def test_menu_clause_with_both_clips_stored_is_skipped(repo):
     entry = record.phrase_join.resolve_cast(name, {**record.CFG, **record.PROFILES})
     clause = record.CFG["clauses"][0]
     for t in (entry["name"], clause):
-        soundbite.save(t, "openai", prof["voice"], b"A", record.CFG["openai_model"], 1.0)
+        soundbite.save(t, "openai", prof["voice"], AUDIO, record.CFG["openai_model"], 1.0)
     calls = []
     assert record.run_lines(_file(repo, f"{name}: {clause}"), "openai", False, fake(calls)) == 0
     assert calls == []
@@ -125,7 +127,7 @@ def test_expressive_line_is_recorded_with_its_own_settings_and_found_by_the_live
 
     def call(provider, voice, text, settings=None):
         seen.append(settings)
-        return 200, b"AUDIO"
+        return 200, AUDIO
     f = _file(repo, line, f"{name}: plain line")
     assert record.run_lines(f, "elevenlabs", False, call) == 0
     assert seen == [{"stability": 0.3, "similarity_boost": 0.5}, None]
@@ -141,3 +143,28 @@ def test_expressive_settings_matches_ignoring_case_and_spacing():
     assert phrase_join.expressive_settings("Lyrika:  THAT worked", c) == {"stability": 0.3, "similarity_boost": 0.5}
     assert phrase_join.expressive_settings("lyrika: that failed", c) is None
     assert phrase_join.expressive_settings("lyrika: that worked", {}) is None
+
+
+def _stored_pair(repo):
+    name, prof = _openai_cast()
+    entry = record.phrase_join.resolve_cast(name, {**record.CFG, **record.PROFILES})
+    clause = record.CFG["clauses"][0]
+    paths = [soundbite.save(t, "openai", prof["voice"], AUDIO, record.CFG["openai_model"], 1.0)
+             for t in (entry["name"], clause)]
+    return name, clause, paths
+
+
+def test_a_stored_clip_too_small_to_be_a_clip_is_recorded_again(repo):
+    name, clause, paths = _stored_pair(repo)
+    paths[1].write_bytes(b"torn")  # still in the manifest and on disk, but lookup would not play it
+    calls = []
+    assert record.run_lines(_file(repo, f"{name}: {clause}"), "openai", False, fake(calls)) == 0
+    assert len(calls) == 1  # the pair is not fully stored, so the line is recorded
+
+
+def test_a_manifest_entry_whose_clip_vanished_is_recorded_again_not_a_crash(repo):
+    name, clause, paths = _stored_pair(repo)
+    paths[0].unlink()
+    calls = []
+    assert record.run_lines(_file(repo, f"{name}: {clause}"), "openai", False, fake(calls)) == 0
+    assert len(calls) == 1

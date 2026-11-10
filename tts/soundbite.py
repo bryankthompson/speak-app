@@ -30,6 +30,8 @@ from pathlib import Path
 from typing import Optional
 
 
+MIN_CLIP_BYTES = 1024  # smaller is not a clip (an empty or torn download)
+
 def repo_dir() -> Path:
     return Path(os.getenv("SOUNDBITE_DIR", "~/soundbite")).expanduser()
 
@@ -86,7 +88,7 @@ def adopt(text: str, provider: str, voice: str, model: str = "", speed: float = 
     path = repo_dir() / rel
     with _locked():
         manifest = _load()
-        if key in manifest or not path.exists() or path.stat().st_size < 1024:
+        if key in manifest or not path.exists() or path.stat().st_size < MIN_CLIP_BYTES:
             return False
         manifest[key] = {
             "text": text.strip(), "provider": provider, "voice": voice, "model": model, "speed": speed,
@@ -105,7 +107,7 @@ def lookup(text: str, provider: str, voice: str, model: str = "", speed: float =
         entry = (_load() if manifest is None else manifest).get(make_key(text, provider, voice, model, speed))
         if entry:
             path = repo_dir() / entry["file"]
-            if path.exists():
+            if path.exists() and path.stat().st_size >= MIN_CLIP_BYTES:  # an empty file is a miss, as for the indexer
                 return path
     except Exception as e:
         print(f"soundbite lookup failed (treating as miss): {e}", file=sys.stderr)
@@ -162,7 +164,7 @@ def import_cache(cache_dir: str = "~/.cache/speak-app", model: str = "tts-1") ->
     added = 0
     for old_key, m in meta.items():
         src = cache / f"{old_key}.mp3"
-        if not src.exists() or not m.get("voice") or src.stat().st_size < 1024:
+        if not src.exists() or not m.get("voice") or src.stat().st_size < MIN_CLIP_BYTES:
             continue  # real speech is several KB; tiny files are test fixtures
         if lookup(m["text"], m["provider"], m["voice"], model, 1.0):
             continue
