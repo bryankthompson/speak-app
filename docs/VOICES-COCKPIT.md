@@ -21,11 +21,13 @@ line above is what leads are told.
 
 ## The "needs your answer" cue (AskUserQuestion hook)
 
-A lead that asks the user through AskUserQuestion has no prose to speak, so a PreToolUse hook says
+A lead that asks the user through AskUserQuestion has no prose to speak, so a PreToolUse hook plays
 `<repo>: needs your answer` from stored clips (free; no API call). `tts/ask_cue.py` reads the hook payload, names the
-cockpit after the repo's main checkout (worktrees and lanes follow it), and starts `speak` detached so the dialog never
-waits for the clip. The per-repo gate still applies (an unlisted repo stays silent). It always exits 0; a failed launch
-is written to `~/.cache/speak-app/ask_cue.log`, and `speak --repos` shows what was spoken or skipped.
+cockpit after the repo's main checkout (worktrees and lanes follow it), applies the per-repo gate, records spoke or
+skipped in `speech.log` like `speak` does, and plays the repo's name clip and the clause in a detached child so the
+dialog never waits. It never calls `speak`, so it cannot fall back to synthesizing the line: a repo with no assigned
+voice, a missing clip or plain-voice mode stays silent, and the reason goes to `~/.cache/speak-app/ask_cue.log`
+(as does a playback failure). It always exits 0.
 
 Wire it once in `~/.claude/settings.json`, in the `PreToolUse` list next to the safety hook (`|| true` keeps a missing
 script from blocking the question):

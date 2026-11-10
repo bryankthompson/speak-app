@@ -7,6 +7,8 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent / "tts"))
 import soundbite
 
+AUDIO = b"AUDIO" * 300  # lookup treats a file under 1,024 bytes as not a clip
+
 
 @pytest.fixture(autouse=True)
 def repo(tmp_path, monkeypatch):
@@ -16,12 +18,12 @@ def repo(tmp_path, monkeypatch):
 
 def test_miss_then_hit_returns_stored_bytes():
     assert soundbite.lookup("Build complete", "openai", "onyx", "tts-1") is None
-    soundbite.save("Build complete", "openai", "onyx", b"AUDIO", "tts-1")
-    assert soundbite.lookup("Build complete", "openai", "onyx", "tts-1").read_bytes() == b"AUDIO"
+    soundbite.save("Build complete", "openai", "onyx", AUDIO, "tts-1")
+    assert soundbite.lookup("Build complete", "openai", "onyx", "tts-1").read_bytes() == AUDIO
 
 
 def test_case_and_whitespace_do_not_change_the_key():
-    soundbite.save("Build complete", "openai", "onyx", b"A", "tts-1")
+    soundbite.save("Build complete", "openai", "onyx", AUDIO, "tts-1")
     assert soundbite.lookup("  build   COMPLETE ", "openai", "onyx", "tts-1")
 
 
@@ -30,7 +32,7 @@ def test_case_and_whitespace_do_not_change_the_key():
 ])
 def test_anything_that_changes_the_audio_is_a_miss(other):
     base = dict(provider="openai", voice="onyx", model="tts-1", speed=1.0)
-    soundbite.save("Hi", audio=b"A", **base)
+    soundbite.save("Hi", audio=AUDIO, **base)
     assert soundbite.lookup("Hi", **{**base, **other}) is None
 
 
@@ -83,3 +85,11 @@ def test_crash_while_writing_leaves_the_old_clip_and_no_temp_file(monkeypatch):
     assert soundbite.save("Hi", "openai", "onyx", b"NEW", "tts-1") is None
     assert p.read_bytes() == b"OLD"
     assert not list(p.parent.glob("*.tmp"))
+
+
+def test_an_indexed_but_empty_clip_is_a_miss():
+    """A zero-byte file the manifest still lists must not count as stored (it would play silence, or fail playback)."""
+    p = soundbite.save("Hi", "openai", "onyx", AUDIO, "tts-1")
+    assert soundbite.lookup("Hi", "openai", "onyx", "tts-1") == p
+    p.write_bytes(b"")
+    assert soundbite.lookup("Hi", "openai", "onyx", "tts-1") is None
