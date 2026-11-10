@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Speak is a cost-optimized, universal text-to-speech command-line tool with intelligent provider fallback, batch processing, and automatic caching system.
+Speak is a cost-optimized, universal text-to-speech command-line tool with intelligent provider fallback and a stored-clip library.
 
 ## Installation
 
@@ -26,9 +26,7 @@ For complete installation instructions, see **[INSTALLATION.md](INSTALLATION.md)
 - **Provider Scripts**: Each provider has its own implementation in `tts/[provider]_tts.py`
 
 ### Cost Optimization System
-- **Batch Processing**: `speak-batch` command for efficient bulk TTS generation
-- **Caching System**: `tts/cache_manager.py` automatically caches frequently used phrases
-- **Usage Tracking**: `tts/usage_tracker.py` monitors costs and usage patterns
+- **Stored Clips**: `tts/soundbite.py` keeps every paid clip and looks it up first, so a phrase is paid for once
 - **Development Mode**: `speak-dev` forces offline TTS to prevent accidental API usage
 
 ### Python Execution Model
@@ -111,11 +109,8 @@ speak --voice 21m00Tcm4TlvDq8ikWAM "Custom voice test"
 python3 tts/tts_provider.py "test message"
 python3 tts/observability.py  # Run observability tests
 
-# Batch processing and cost optimization
-speak-batch --common  # Generate common developer notifications
-speak-batch messages.txt --voice onyx  # Process custom file
-speak-costs  # Show cost analysis and recommendations
-python3 tts/usage_tracker.py --report  # Detailed usage report
+# Cost per message
+speak-with-tracking "Test message"
 ```
 
 ### Voice Testing (Priority)

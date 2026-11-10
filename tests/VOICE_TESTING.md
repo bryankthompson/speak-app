@@ -133,4 +133,4 @@ export ELEVENLABS_VOICE_ID="21m00Tcm4TlvDq8ikWAM"  # Rachel voice
 - **OpenAI**: ~$0.015 per 1,000 characters
 - **ElevenLabs**: ~$0.30 per 1,000 characters
 
-Use `speak-costs` to see detailed pricing comparison.
+See [docs/PROVIDERS.md](../docs/PROVIDERS.md) for the provider price comparison.

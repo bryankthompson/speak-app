@@ -235,8 +235,6 @@ class TestScriptExecutability:
         """Get paths to all executable scripts."""
         return [
             PROJECT_ROOT / "speak",
-            PROJECT_ROOT / "speak-batch",
-            PROJECT_ROOT / "speak-costs",
             PROJECT_ROOT / "speak-dev",
             PROJECT_ROOT / "speak-with-tracking",
             PROJECT_ROOT / "tts" / "tts_provider.py",

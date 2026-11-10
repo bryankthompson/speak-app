@@ -28,10 +28,7 @@ These are the most important tests - they verify actual audio output:
 - **`test_api_integration.py`** - General API functionality
 
 ### Utility Tests
-- **`test_cache_manager.py`** - Caching system
-- **`test_usage_tracker.py`** - Usage tracking
 - **`test_observability.py`** - Monitoring system
-- **`test_batch_processing.py`** - Batch TTS generation
 
 ## Running Voice Tests
 
@@ -189,7 +186,7 @@ pytest -m "not audio_output"
 pytest test_tts_provider_selection.py test_error_handling.py -v
 
 # Integration tests (no audio)
-pytest test_environment_config.py test_cache_manager.py -v
+pytest test_environment_config.py test_soundbite.py -v
 ```
 
 ## Test Maintenance

@@ -24,8 +24,6 @@ mkdir -p ~/bin
 
 # 3. Create symlinks for all speak commands
 ln -sf ~/speak-app/speak ~/bin/speak
-ln -sf ~/speak-app/speak-batch ~/bin/speak-batch
-ln -sf ~/speak-app/speak-costs ~/bin/speak-costs
 ln -sf ~/speak-app/speak-dev ~/bin/speak-dev
 ln -sf ~/speak-app/speak-with-tracking ~/bin/speak-with-tracking
 
@@ -92,8 +90,6 @@ ls -la speak*
 Expected output:
 ```
 -rwxr-xr-x speak
--rwxr-xr-x speak-batch
--rwxr-xr-x speak-costs
 -rwxr-xr-x speak-dev
 -rwxr-xr-x speak-with-tracking
 ```
@@ -117,8 +113,6 @@ Create symbolic links in `~/bin` to make the speak commands globally accessible:
 ```bash
 # Create symlinks for all speak commands
 ln -sf ~/speak-app/speak ~/bin/speak
-ln -sf ~/speak-app/speak-batch ~/bin/speak-batch
-ln -sf ~/speak-app/speak-costs ~/bin/speak-costs
 ln -sf ~/speak-app/speak-dev ~/bin/speak-dev
 ln -sf ~/speak-app/speak-with-tracking ~/bin/speak-with-tracking
 
@@ -129,8 +123,6 @@ ls -la ~/bin/speak*
 Expected output:
 ```
 lrwxrwxrwx speak -> /home/username/speak-app/speak
-lrwxrwxrwx speak-batch -> /home/username/speak-app/speak-batch
-lrwxrwxrwx speak-costs -> /home/username/speak-app/speak-costs
 lrwxrwxrwx speak-dev -> /home/username/speak-app/speak-dev
 lrwxrwxrwx speak-with-tracking -> /home/username/speak-app/speak-with-tracking
 ```
@@ -316,17 +308,11 @@ speak --test
 ### Test Additional Commands
 
 ```bash
-# Test batch processing
-echo -e "Line one\nLine two\nLine three" | speak-batch
-
 # Test cost tracking
 speak-with-tracking "This shows costs"
 
 # Test development mode (offline only)
 speak-dev "Free offline TTS"
-
-# View cost analysis
-speak-costs
 ```
 
 ## Troubleshooting
@@ -564,7 +550,7 @@ After successful installation:
 2. **Configure Voice Preferences**: See [SETUP_OPENAI.md](SETUP_OPENAI.md) for voice options
 3. **Explore Integrations**: See [docs/INTEGRATION.md](docs/INTEGRATION.md) for script integration
 4. **Set Up Claude Code Hooks**: See [docs/CLAUDE_CODE_INTEGRATION.md](docs/CLAUDE_CODE_INTEGRATION.md)
-5. **Review Cost Optimization**: Run `speak-costs` for personalized recommendations
+5. **Review Cost Optimization**: Use `speak-dev` for free offline speech and see [docs/PROVIDERS.md](docs/PROVIDERS.md) for provider prices
 
 ## Getting Help
 
