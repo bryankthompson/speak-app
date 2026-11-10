@@ -9,7 +9,7 @@
 
 """
 Comprehensive test suite for Cost Optimization Commands.
-Tests speak-dev, speak-costs, speak-with-tracking, and set_openai_default.py.
+Tests speak-dev, speak-with-tracking, and set_openai_default.py.
 """
 
 import os
@@ -172,133 +172,6 @@ class TestSpeakDevCommand:
         
         assert result.returncode == 0
         assert "[DEV MODE]" in result.stderr
-
-
-class TestSpeakCostsCommand:
-    """Test speak-costs command functionality."""
-    
-    @pytest.fixture
-    def speak_costs_path(self):
-        """Get the path to the speak-costs script."""
-        return PROJECT_ROOT / "speak-costs"
-    
-    def test_speak_costs_exists_and_executable(self, speak_costs_path):
-        """Test that speak-costs exists and is executable."""
-        assert speak_costs_path.exists()
-        assert speak_costs_path.is_file()
-        assert os.access(speak_costs_path, os.X_OK)
-    
-    def test_speak_costs_basic_output(self, speak_costs_path):
-        """Test basic output of speak-costs command."""
-        result = subprocess.run(
-            [str(speak_costs_path)],
-            capture_output=True,
-            text=True,
-            timeout=10
-        )
-        
-        assert result.returncode == 0
-        assert "TTS Cost Analysis" in result.stdout
-        assert "Provider Costs" in result.stdout
-        assert "elevenlabs" in result.stdout
-        assert "openai" in result.stdout
-        assert "pyttsx3" in result.stdout
-    
-    def test_speak_costs_shows_provider_costs(self, speak_costs_path):
-        """Test that speak-costs shows provider costs."""
-        result = subprocess.run(
-            [str(speak_costs_path)],
-            capture_output=True,
-            text=True,
-            timeout=10
-        )
-        
-        assert result.returncode == 0
-        assert "$0.330" in result.stdout  # ElevenLabs cost
-        assert "$0.015" in result.stdout  # OpenAI cost
-        assert "$0.000" in result.stdout  # pyttsx3 cost
-    
-    def test_speak_costs_shows_recommendations(self, speak_costs_path):
-        """Test that speak-costs shows cost-saving recommendations."""
-        result = subprocess.run(
-            [str(speak_costs_path)],
-            capture_output=True,
-            text=True,
-            timeout=10
-        )
-        
-        assert result.returncode == 0
-        assert "Cost-Saving Recommendations" in result.stdout
-        assert "speak-dev" in result.stdout
-        assert "TTS_PROVIDER=openai" in result.stdout
-        assert "Cache common phrases" in result.stdout
-    
-    def test_speak_costs_shows_monthly_projections(self, speak_costs_path):
-        """Test that speak-costs shows monthly cost projections."""
-        result = subprocess.run(
-            [str(speak_costs_path)],
-            capture_output=True,
-            text=True,
-            timeout=10
-        )
-        
-        assert result.returncode == 0
-        assert "Monthly Cost Projections" in result.stdout
-        assert "chars/day" in result.stdout
-        assert "/month" in result.stdout
-    
-    def test_speak_costs_shows_savings_potential(self, speak_costs_path):
-        """Test that speak-costs shows potential savings."""
-        result = subprocess.run(
-            [str(speak_costs_path)],
-            capture_output=True,
-            text=True,
-            timeout=10
-        )
-        
-        assert result.returncode == 0
-        assert "Potential Savings" in result.stdout
-        assert "$99.00/month" in result.stdout  # ElevenLabs cost
-        assert "$4.50/month" in result.stdout   # OpenAI cost
-        assert "99%" in result.stdout           # Savings percentage
-    
-    def test_speak_costs_shows_current_usage(self, speak_costs_path):
-        """Test that speak-costs shows current usage information."""
-        result = subprocess.run(
-            [str(speak_costs_path)],
-            capture_output=True,
-            text=True,
-            timeout=10
-        )
-        
-        assert result.returncode == 0
-        assert "Recent Usage" in result.stdout
-        assert "10,000 characters" in result.stdout
-        assert "100% of free tier" in result.stdout
-    
-    def test_speak_costs_handles_missing_history(self, speak_costs_path):
-        """Test that speak-costs handles missing bash history gracefully."""
-        # Mock a scenario where bash history doesn't exist
-        with patch('pathlib.Path.exists', return_value=False):
-            result = subprocess.run(
-                [str(speak_costs_path)],
-                capture_output=True,
-                text=True,
-                timeout=10
-            )
-            
-            assert result.returncode == 0
-            assert "TTS Cost Analysis" in result.stdout
-    
-    def test_speak_costs_python_module_import(self, speak_costs_path):
-        """Test that speak-costs can be imported as a Python module."""
-        # Skip this test - speak-costs is a bash script with python3 shebang
-        pytest.skip("speak-costs is a bash script, not a Python module")
-    
-    def test_speak_costs_cost_constants(self, speak_costs_path):
-        """Test that speak-costs has correct cost constants."""
-        # Skip this test - speak-costs is a bash script with python3 shebang
-        pytest.skip("speak-costs is a bash script, not a Python module")
 
 
 class TestSpeakWithTrackingCommand:
@@ -653,7 +526,6 @@ class TestCostOptimizationIntegration:
         """Get paths to all cost optimization commands."""
         return {
             'speak_dev': PROJECT_ROOT / "speak-dev",
-            'speak_costs': PROJECT_ROOT / "speak-costs",
             'speak_with_tracking': PROJECT_ROOT / "speak-with-tracking",
             'set_openai_default': PROJECT_ROOT / "set_openai_default.py"
         }
@@ -667,17 +539,7 @@ class TestCostOptimizationIntegration:
     
     def test_cost_optimization_workflow(self, command_paths):
         """Test the complete cost optimization workflow."""
-        # Step 1: Check current costs
-        result = subprocess.run(
-            [str(command_paths['speak_costs'])],
-            capture_output=True,
-            text=True,
-            timeout=10
-        )
-        assert result.returncode == 0
-        assert "Cost Analysis" in result.stdout
-        
-        # Step 2: Use development mode
+        # Step 1: Use development mode
         result = subprocess.run(
             [str(command_paths['speak_dev']), "--off", "Development test"],
             capture_output=True,
@@ -687,7 +549,7 @@ class TestCostOptimizationIntegration:
         assert result.returncode == 0
         assert "[DEV MODE]" in result.stderr
         
-        # Step 3: Use tracking mode
+        # Step 2: Use tracking mode
         result = subprocess.run(
             [str(command_paths['speak_with_tracking']), "--off", "Tracking test"],
             capture_output=True,

@@ -31,7 +31,6 @@ These are the most important tests - they verify actual audio output:
 - **`test_cache_manager.py`** - Caching system
 - **`test_usage_tracker.py`** - Usage tracking
 - **`test_observability.py`** - Monitoring system
-- **`test_batch_processing.py`** - Batch TTS generation
 
 ## Running Voice Tests
 

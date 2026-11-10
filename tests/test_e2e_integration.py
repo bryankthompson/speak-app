@@ -211,19 +211,7 @@ class TestCompleteUserWorkflows:
     
     def test_multi_command_workflow(self, speak_script_path, clean_environment):
         """Test workflow using multiple commands in sequence."""
-        # Step 1: Check costs
-        speak_costs_path = PROJECT_ROOT / "speak-costs"
-        if speak_costs_path.exists():
-            result = subprocess.run(
-                [str(speak_costs_path)],
-                capture_output=True,
-                text=True,
-                timeout=10,
-                env=clean_environment
-            )
-            assert result.returncode == 0
-        
-        # Step 2: Use development mode
+        # Step 1: Use development mode
         speak_dev_path = PROJECT_ROOT / "speak-dev"
         if speak_dev_path.exists():
             result = subprocess.run(
@@ -236,7 +224,7 @@ class TestCompleteUserWorkflows:
             assert result.returncode == 0
             assert "[DEV MODE]" in result.stderr
         
-        # Step 3: Use tracking mode
+        # Step 2: Use tracking mode
         speak_tracking_path = PROJECT_ROOT / "speak-with-tracking"
         if speak_tracking_path.exists():
             result = subprocess.run(
@@ -248,7 +236,7 @@ class TestCompleteUserWorkflows:
             )
             assert result.returncode == 0
         
-        # Step 4: Regular speak command
+        # Step 3: Regular speak command
         result = subprocess.run(
             [str(speak_script_path), "--off", "Regular mode test"],
             capture_output=True,
@@ -367,33 +355,6 @@ class TestProviderIntegration:
         assert result.returncode == 0
 
 
-class TestBatchProcessingIntegration:
-    """Test batch processing integration workflows."""
-    
-    @pytest.fixture
-    def speak_batch_path(self):
-        """Get the path to the speak-batch script."""
-        return PROJECT_ROOT / "speak-batch"
-    
-    def test_batch_processing_workflow(self, speak_batch_path):
-        """Test complete batch processing workflow."""
-        if not speak_batch_path.exists():
-            pytest.skip("speak-batch not available")
-        
-        # Since speak-batch requires real API calls, we'll skip this test
-        # in the E2E suite. The batch processing is tested separately in test_batch_processing.py
-        pytest.skip("speak-batch requires real API calls - tested separately")
-    
-    def test_batch_with_cache_integration(self, speak_batch_path):
-        """Test batch processing with cache integration."""
-        if not speak_batch_path.exists():
-            pytest.skip("speak-batch not available")
-        
-        # Since speak-batch requires real API calls, we'll skip this test
-        # in the E2E suite. The batch processing is tested separately in test_batch_processing.py
-        pytest.skip("speak-batch requires real API calls - tested separately")
-
-
 class TestCostOptimizationIntegration:
     """Test cost optimization workflows and integration."""
     
@@ -401,30 +362,10 @@ class TestCostOptimizationIntegration:
     def command_paths(self):
         """Get paths to cost optimization commands."""
         return {
-            'speak_costs': PROJECT_ROOT / "speak-costs",
             'speak_dev': PROJECT_ROOT / "speak-dev",
             'speak_with_tracking': PROJECT_ROOT / "speak-with-tracking",
             'set_openai_default': PROJECT_ROOT / "set_openai_default.py"
         }
-    
-    def test_cost_analysis_workflow(self, command_paths):
-        """Test complete cost analysis workflow."""
-        if not command_paths['speak_costs'].exists():
-            pytest.skip("speak-costs not available")
-        
-        # Step 1: Run cost analysis
-        result = subprocess.run(
-            [str(command_paths['speak_costs'])],
-            capture_output=True,
-            text=True,
-            timeout=10
-        )
-        
-        assert result.returncode == 0
-        assert "Cost Analysis" in result.stdout
-        assert "elevenlabs" in result.stdout
-        assert "openai" in result.stdout
-        assert "pyttsx3" in result.stdout
     
     def test_cost_optimization_workflow(self, command_paths):
         """Test complete cost optimization workflow."""

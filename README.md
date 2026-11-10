@@ -6,7 +6,7 @@
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/triepod-ai/speak-app/blob/main/LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20WSL-lightgrey.svg)](https://github.com/triepod-ai/speak-app)
 
-**A cost-optimized, multi-provider text-to-speech command-line tool with intelligent caching and batch processing**
+**A cost-optimized, multi-provider text-to-speech command-line tool with intelligent caching**
 
 [Features](#features) • [Installation](#installation) • [Quick Start](#quick-start) • [Documentation](#documentation) • [Examples](#examples)
 
@@ -25,7 +25,6 @@
 - 🎙️ **Multi-Provider Support**: OpenAI (default), ElevenLabs, and pyttsx3 (offline)
 - 💰 **Cost Optimization**: 95% cost reduction with OpenAI as default, intelligent caching system
 - 🔄 **Intelligent Fallback**: Automatic provider selection (OpenAI → ElevenLabs → pyttsx3)
-- 📦 **Batch Processing**: Process multiple texts efficiently with `speak-batch`
 - 💾 **Smart Caching**: Automatic caching of frequently used phrases
 - 📊 **Usage Tracking**: Monitor costs and usage patterns
 - 📝 **Flexible Input**: Direct text, piped input, or file reading
@@ -81,8 +80,6 @@ speak "Installation complete"
 ```
 ~/speak-app/
 ├── speak                # Main executable
-├── speak-batch          # Batch processing
-├── speak-costs          # Cost analysis
 ├── speak-dev            # Development mode (offline)
 ├── speak-with-tracking  # Usage tracking
 ├── tts/                 # TTS provider infrastructure
@@ -154,29 +151,11 @@ export OPENAI_API_KEY="your-openai-key"
 | **OpenAI** | $0.15 | $4.50 | ⭐⭐⭐⭐ |
 | **pyttsx3** | $0.00 | $0.00 | ⭐⭐⭐ |
 
-### Batch Processing
-
-Generate multiple TTS files efficiently:
-
-```bash
-# Generate common developer notifications
-speak-batch --common
-
-# Process your own text file
-speak-batch messages.txt --voice onyx
-
-# Custom output directory
-speak-batch messages.txt --output assets/audio
-```
-
 ### Usage Monitoring
 
 Track your TTS usage and costs:
 
 ```bash
-# Cost analysis and recommendations
-speak-costs
-
 # Usage tracking report
 python3 tts/usage_tracker.py --report
 
@@ -185,21 +164,6 @@ speak-dev "This saves money"
 ```
 
 ## 🛠️ New Tools
-
-### `speak-batch` - Batch TTS Processing
-
-Process multiple texts efficiently with automatic caching:
-
-```bash
-# Generate 30+ common notifications
-speak-batch --common
-
-# Process custom file
-speak-batch messages.txt --voice echo --model tts-1-hd
-
-# Show all options
-speak-batch --help
-```
 
 ### `speak-dev` - Development Mode
 
@@ -211,18 +175,6 @@ speak-dev "Development message"
 
 # Perfect for build scripts
 make build && speak-dev "Build complete"
-```
-
-### `speak-costs` - Cost Analysis
-
-Monitor and optimize TTS costs:
-
-```bash
-# Show cost breakdown and recommendations
-speak-costs
-
-# See potential savings
-speak-costs --projection
 ```
 
 ### Per-repo control

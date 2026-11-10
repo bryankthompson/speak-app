@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **Per-repo speech control**: central registry `~/.config/speak-app/repos.json` with a gate; `speak --here`, `--repos`, `--gate`, and `--alert` for warnings that always speak. Off by default, so nothing changes until the gate is switched on. Every decision is logged to `~/.cache/speak-app/speech.log`.
 
+### Removed
+- **`speak-batch` and `speak-costs`**: both retired. No run of either was found in the last 60 days (searched 2026-11-09: Claude transcripts, shell history, cron), and nothing in the repo or its hooks called them. Pre-recording clips is now done by `phrases/record.py` into the soundbite library. Their tests, the `test-batch-demo.py` demo and their README and INSTALLATION sections went with them. The 1.0.0 and 1.1.0 entries below still describe them as they were then. If you installed the `~/bin/speak-batch` and `~/bin/speak-costs` symlinks, they now point at nothing and can be deleted.
+
 ## [1.2.0] - 2025-10-09
 
 ### Fixed
