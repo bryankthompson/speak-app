@@ -362,6 +362,12 @@
     "hades-router": {
       "profile": "fable",
       "say": "hades router"
+    },
+    "tabby": {
+      "profile": "sam"
+    },
+    "my-suno-studio": {
+      "profile": "domi"
     }
   }
 }
