@@ -3,6 +3,7 @@
 `speak "hades: go or no-go?"`:
   1. "hades" resolves to a cast entry (phrases/casting.json: names, aliases, a trailing "-cockpit" or " lead" is dropped).
   2. If the tail is a known clause, the stored name clip and clause clip play back to back. No API call.
+     If they will not play, try_join raises StoredClipsFailed: the default path must not pay for a stored line.
   3. Otherwise the whole line is spoken in that lead's own voice (provider script; it saves to the library).
   4. Unknown name, no ": ", or an explicit voice: not handled here (try_join returns False), and the
      unknown name is logged to ~/.cache/speak-app/voice_misses.log.
@@ -23,6 +24,11 @@ import soundbite  # noqa: E402
 CASTING = Path(__file__).parent.parent / "phrases" / "casting.json"
 PROFILES = Path(os.getenv("SPEAK_PROFILES", Path(__file__).parent.parent / "phrases" / "profiles.json"))
 MISS_LOG = Path("~/.cache/speak-app/voice_misses.log").expanduser()
+
+
+class StoredClipsFailed(Exception):
+    """The stored clips were found but would not play. Not a miss: the default path would pay to synthesize a line
+    that is already paid for, then play it the same broken way."""
 
 
 def load_casting() -> dict:
@@ -97,6 +103,12 @@ def plan(text: str, casting: Optional[dict] = None):
     return ("voice", entry)
 
 
+def last_line(stderr: str) -> str:
+    """The last non-empty stderr line (a provider script ends with its error), or a placeholder."""
+    lines = [l.strip() for l in (stderr or "").splitlines() if l.strip()]
+    return lines[-1][:200] if lines else "no error text"
+
+
 def _log_miss(prefix: str) -> None:
     try:
         MISS_LOG.parent.mkdir(parents=True, exist_ok=True)
@@ -106,8 +118,10 @@ def _log_miss(prefix: str) -> None:
         pass
 
 
-def try_join(text: str) -> bool:
-    """Speak `text` via the lead's voice if it names a cast lead. True only if it was spoken."""
+def try_join(text: str, failures: Optional[list] = None) -> bool:
+    """Speak `text` via the lead's voice if it names a cast lead. True only if it was spoken.
+    Why a lead's voice did not play (API out of credit, playback error) is appended to `failures`."""
+    failures = [] if failures is None else failures
     try:
         casting = load_casting()
         p = plan(text, casting)
@@ -120,7 +134,11 @@ def try_join(text: str) -> bool:
         entry = p[1]
         if p[0] == "join":
             import playback
-            playback.play_files(p[2])
+            try:
+                playback.play_files(p[2])
+            except Exception as e:
+                failures.append(f"stored clips: {e}")
+                raise StoredClipsFailed(str(e)) from e
             return True
         script = Path(__file__).parent / f"{entry['provider']}_tts.py"
         if entry["provider"] == "openai":
@@ -132,7 +150,13 @@ def try_join(text: str) -> bool:
         if style:  # the livelier recording is stored under these settings; the provider script reads them from env
             env = {**os.environ, "ELEVENLABS_STABILITY": f"{style['stability']:g}",
                    "ELEVENLABS_SIMILARITY_BOOST": f"{style['similarity_boost']:g}"}
-        return subprocess.run(cmd, capture_output=True, text=True, timeout=60, env=env).returncode == 0
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=60, env=env)
+        if r.returncode != 0:
+            failures.append(f"{entry['provider']} voice: {last_line(r.stderr)}")
+        return r.returncode == 0
+    except StoredClipsFailed:
+        raise
     except Exception as e:
         print(f"phrase join failed, using the default path: {e}", file=sys.stderr)
+        failures.append("lead voice: timed out" if isinstance(e, subprocess.TimeoutExpired) else f"lead voice: {e}")
         return False

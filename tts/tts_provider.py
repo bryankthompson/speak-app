@@ -21,6 +21,12 @@ try:
 except ImportError:
     load_dotenv = None
 
+def _last_line(stderr: str) -> str:
+    """The last non-empty stderr line (a provider script ends with its error), or a placeholder."""
+    lines = [l.strip() for l in (stderr or "").splitlines() if l.strip()]
+    return lines[-1][:200] if lines else "no error text"
+
+
 class TTSProvider:
     """Manages TTS provider selection and execution."""
     
@@ -35,6 +41,7 @@ class TTSProvider:
         self.tts_enabled = os.getenv("TTS_ENABLED", "true").lower() == "true"
         self.provider_preference = os.getenv("TTS_PROVIDER", "auto")
         self.utils_dir = Path(__file__).parent
+        self.failures: List[str] = []  # why each provider failed, for speech.log and the error line
         
     def get_available_providers(self) -> List[str]:
         """Get list of available TTS providers based on API keys."""
@@ -98,6 +105,7 @@ class TTSProvider:
         
         if not provider:
             print("No TTS provider available", file=sys.stderr)
+            self.failures.append("no TTS provider available")
             return False
         
         # Get provider script path
@@ -110,6 +118,7 @@ class TTSProvider:
         script_path = script_map.get(provider)
         if not script_path or not script_path.exists():
             print(f"TTS provider script not found: {provider}", file=sys.stderr)
+            self.failures.append(f"{provider}: script not found")
             return False
         
         # Execute TTS script directly to respect shebang (for uv support)
@@ -137,15 +146,18 @@ class TTSProvider:
             
             if result.returncode != 0:
                 print(f"TTS provider {provider} failed: {result.stderr}", file=sys.stderr)
+                self.failures.append(f"{provider}: {_last_line(result.stderr)}")
                 return False
             
             return True
             
         except subprocess.TimeoutExpired:
             print(f"TTS provider {provider} timed out", file=sys.stderr)
+            self.failures.append(f"{provider}: timed out")
             return False
         except Exception as e:
             print(f"TTS provider {provider} error: {e}", file=sys.stderr)
+            self.failures.append(f"{provider}: {e}")
             return False
     
     def speak_with_fallback(self, text: str, voice_id: Optional[str] = None, 
@@ -217,11 +229,17 @@ def main():
         print(f"skipped: {repo} not enabled; run: speak --here on")
         sys.exit(0)
 
+    failures: List[str] = []
     # A line naming a cast lead ("hades: go or no-go?") is spoken in that lead's voice from the soundbite library
     if voices and not args.voice_id and os.getenv("TTS_ENABLED", "true") != "false":
         import phrase_join
-        if phrase_join.try_join(text):
-            sys.exit(0)
+        try:
+            if phrase_join.try_join(text, failures):
+                sys.exit(0)
+        except phrase_join.StoredClipsFailed:  # stored clips would not play: stop, do not pay to synthesize the line
+            repo_gate.log("failed", repo, text, "; ".join(failures))
+            print("speak: " + "; ".join(failures), file=sys.stderr)
+            sys.exit(1)
 
     # Create provider and speak
     tts = TTSProvider()
@@ -244,6 +262,11 @@ def main():
     else:
         success = tts.speak_with_fallback(text, args.voice_id, voice_settings)
     
+    failures += tts.failures
+    if failures:  # a failure or a degraded fallback: say why in speech.log (stderr is swallowed by hooks and lanes)
+        repo_gate.log("fallback" if success else "failed", repo, text, "; ".join(failures))
+        if not success:
+            print("speak: " + "; ".join(failures), file=sys.stderr)
     sys.exit(0 if success else 1)
 
 if __name__ == "__main__":

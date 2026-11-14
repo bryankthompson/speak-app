@@ -205,6 +205,8 @@ speak_text() {
     "$TTS_PROVIDER_SCRIPT" "${cmd_args[@]}" 2>"$err" || rc=$?
     if [[ $rc -eq 3 ]]; then
         cat "$err" >&2   # registry invalid: say why
+    elif [[ $rc -ne 0 ]]; then
+        tail -n 1 "$err" >&2   # the cause (tts_provider ends its stderr with "speak: <why>"); also in speech.log
     fi
     rm -f "$err"
     if [[ $rc -ne 0 ]]; then
