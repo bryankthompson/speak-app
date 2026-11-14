@@ -77,7 +77,8 @@ def test_a_leads_voice_failure_is_reported_not_swallowed(casting, monkeypatch):
     monkeypatch.setattr(subprocess, "run", lambda *a, **k: done)
     failures = []
     assert phrase_join.try_join("hades: a line nobody recorded", failures) is False
-    assert failures == ["openai voice: OpenAI TTS error: 429 credit_balance_exhausted"]
+    provider = phrase_join.resolve_cast("hades", casting)["provider"]
+    assert failures == [f"{provider} voice: OpenAI TTS error: 429 credit_balance_exhausted"]
 
 
 def test_stored_clips_that_will_not_play_stop_instead_of_paying_for_the_line(casting, monkeypatch):
@@ -92,3 +93,14 @@ def test_stored_clips_that_will_not_play_stop_instead_of_paying_for_the_line(cas
         phrase_join.try_join("hades: needs your answer", failures)
     assert paid == []  # no provider script (no API call) ran
     assert failures == ["stored clips: PowerShell playback failed"]
+
+
+def test_a_timeout_is_logged_without_the_spoken_line(casting, monkeypatch):
+    import subprocess
+    stock(casting, "hades", ["needs your answer"])
+    def slow(cmd, **k):
+        raise subprocess.TimeoutExpired(cmd, 60)
+    monkeypatch.setattr(subprocess, "run", slow)
+    failures = []
+    assert phrase_join.try_join("hades: a private sentence nobody stored", failures) is False
+    assert failures == ["lead voice: timed out"]

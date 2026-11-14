@@ -15,6 +15,7 @@ SPEAK_REPOS and SPEAK_LOG override the two paths (tests only).
 """
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -25,6 +26,8 @@ def registry_path():
     return Path(os.getenv("SPEAK_REPOS") or "~/.config/speak-app/repos.json").expanduser()
 
 
+# An API error can quote the key it rejected ("Incorrect API key provided: sk-proj-****abcd"): never keep that in a log
+KEY_LIKE = re.compile(r"\b(?:sk|xi)[-_][\w*.\-]{6,}")
 OUTCOME_KINDS = ("failed", "fallback")  # speech.log rows written after a decision, with the cause as 5th column
 
 
@@ -101,7 +104,7 @@ def log(reason, repo, text="", cause=""):
         kind = reason.split(":")[0]
         row = [time.strftime('%F %T'), kind, str(repo), text[:60]]
         if cause:
-            row.append(" ".join(cause.split())[:300])
+            row.append(KEY_LIKE.sub("[key]", " ".join(cause.split()))[:300])
         with path.open("a") as f:
             f.write("\t".join(row) + "\n")
     except OSError as e:

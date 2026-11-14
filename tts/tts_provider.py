@@ -105,6 +105,7 @@ class TTSProvider:
         
         if not provider:
             print("No TTS provider available", file=sys.stderr)
+            self.failures.append("no TTS provider available")
             return False
         
         # Get provider script path
@@ -117,6 +118,7 @@ class TTSProvider:
         script_path = script_map.get(provider)
         if not script_path or not script_path.exists():
             print(f"TTS provider script not found: {provider}", file=sys.stderr)
+            self.failures.append(f"{provider}: script not found")
             return False
         
         # Execute TTS script directly to respect shebang (for uv support)

@@ -158,5 +158,5 @@ def try_join(text: str, failures: Optional[list] = None) -> bool:
         raise
     except Exception as e:
         print(f"phrase join failed, using the default path: {e}", file=sys.stderr)
-        failures.append(f"lead voice: {e}")
+        failures.append("lead voice: timed out" if isinstance(e, subprocess.TimeoutExpired) else f"lead voice: {e}")
         return False

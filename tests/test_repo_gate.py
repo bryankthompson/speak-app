@@ -231,3 +231,15 @@ def test_main_stops_when_stored_clips_will_not_play(repo, monkeypatch, capsys):
     assert log_lines()[-1].split("\t")[1:] == ["failed", str(repo), "hades: needs your answer",
                                                "stored clips: PowerShell playback failed"]
     assert "speak: stored clips: PowerShell playback failed" in capsys.readouterr().err
+
+
+def test_log_never_keeps_a_key_the_api_quoted_back(repo):
+    repo_gate.log("failed", repo, "hello", "OpenAI 401: Incorrect API key provided: sk-proj-********abcd. See docs")
+    row = log_lines()[-1].split("\t")
+    assert "sk-proj" not in row[4] and "abcd" not in row[4] and "[key]" in row[4]
+
+
+def test_provider_with_nothing_to_run_says_so(monkeypatch):
+    monkeypatch.setattr(tts_provider.TTSProvider, "select_provider", lambda self: None)
+    tts = tts_provider.TTSProvider()
+    assert tts.speak("hi") is False and tts.failures == ["no TTS provider available"]
