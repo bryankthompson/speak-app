@@ -68,3 +68,27 @@ def test_unknown_name_is_a_miss_and_safety_hook_text_is_not_split(casting):
 
 def test_plain_text_is_left_alone(casting):
     assert phrase_join.plan("Build complete", casting) is None
+
+
+def test_a_leads_voice_failure_is_reported_not_swallowed(casting, monkeypatch):
+    import subprocess
+    stock(casting, "hades", ["needs your answer"])
+    done = subprocess.CompletedProcess([], 1, "", "x\nOpenAI TTS error: 429 credit_balance_exhausted\n")
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: done)
+    failures = []
+    assert phrase_join.try_join("hades: a line nobody recorded", failures) is False
+    assert failures == ["openai voice: OpenAI TTS error: 429 credit_balance_exhausted"]
+
+
+def test_stored_clips_that_will_not_play_stop_instead_of_paying_for_the_line(casting, monkeypatch):
+    import subprocess
+    import playback
+    stock(casting, "hades", ["needs your answer"])
+    monkeypatch.setattr(playback, "play_files", lambda files: (_ for _ in ()).throw(RuntimeError("PowerShell playback failed")))
+    paid = []
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: paid.append(a))
+    failures = []
+    with pytest.raises(phrase_join.StoredClipsFailed):
+        phrase_join.try_join("hades: needs your answer", failures)
+    assert paid == []  # no provider script (no API call) ran
+    assert failures == ["stored clips: PowerShell playback failed"]

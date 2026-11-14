@@ -25,6 +25,9 @@ def registry_path():
     return Path(os.getenv("SPEAK_REPOS") or "~/.config/speak-app/repos.json").expanduser()
 
 
+OUTCOME_KINDS = ("failed", "fallback")  # speech.log rows written after a decision, with the cause as 5th column
+
+
 def log_path():
     return Path(os.getenv("SPEAK_LOG") or "~/.cache/speak-app/speech.log").expanduser()
 
@@ -90,13 +93,17 @@ def decide(alert=False, cwd=None):
     return True, voices, key, "alert" if alert else "spoke"
 
 
-def log(reason, repo, text=""):
+def log(reason, repo, text="", cause=""):
+    """One tab-separated row: time, kind, repo, text, and (failed/fallback rows) the cause on one line."""
     try:
         path = log_path()
         path.parent.mkdir(parents=True, exist_ok=True)
         kind = reason.split(":")[0]
+        row = [time.strftime('%F %T'), kind, str(repo), text[:60]]
+        if cause:
+            row.append(" ".join(cause.split())[:300])
         with path.open("a") as f:
-            f.write(f"{time.strftime('%F %T')}\t{kind}\t{repo}\t{text[:60]}\n")
+            f.write("\t".join(row) + "\n")
     except OSError as e:
         print(f"speak: cannot write {log_path()}: {e}", file=sys.stderr)
 
@@ -140,7 +147,7 @@ def cmd_repos():
         lines = []
     for line in lines:
         parts = line.split("\t")
-        if len(parts) < 3:
+        if len(parts) < 3 or parts[1] in OUTCOME_KINDS:  # outcome rows follow a decision row; count the decision once
             continue
         try:
             if time.mktime(time.strptime(parts[0], "%Y-%m-%d %H:%M:%S")) < cutoff:

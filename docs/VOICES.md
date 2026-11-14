@@ -81,6 +81,12 @@ A skipped line prints `skipped: REPO not enabled; run: speak --here on` and exit
 non-alert lines with the reason on stderr and exit 3; alerts still speak. Every decision (spoke, skipped, alert,
 invalid) is appended to `~/.cache/speak-app/speech.log`, also while the gate is off.
 
+A line that could not be spoken adds a `failed` row to the same log, with the cause as a fifth column and the same
+text on stderr (`speak: openai: … 429 … no credits remaining`). A line that was spoken only after a provider failed
+(a lead's voice out of credit, so the default voice read it) adds a `fallback` row. `speak --repos` counts only the
+decision rows. If a lead's two stored clips will not play, `speak` stops with `failed` and exit 1: it does not
+fall through to the default path, which would pay to synthesize a line that is already stored.
+
 ## How a cockpit line is resolved
 
 `speak "NAME: TEXT"` is split at the first `": "`; the name must be 40 characters or fewer. Code: `tts/phrase_join.py`.
